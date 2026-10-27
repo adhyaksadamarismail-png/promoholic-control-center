@@ -1,26 +1,30 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Token identitas Promo.Holic: navy utama, oranye aksen, krem area konten. */
+@theme {
+  --color-navy-900: #14213d;
+  --color-navy-800: #1b2a4a;
+  --color-navy-700: #24355c;
+  --color-navy-100: #e8ecf5;
+  --color-orange-500: #f58220;
+  --color-orange-700: #b4530a;
+  --color-orange-100: #ffebd8;
+  --color-cream-50: #fcf9f3;
+  --color-cream-100: #faf5ec;
+  --color-cream-300: #eadfcb;
+  --color-ink-500: #5b6478;
+  --color-success-700: #0e6245;
+  --color-success-100: #e7f4ee;
+  --color-warning-700: #8a4b06;
+  --color-warning-100: #fef1de;
+  --color-danger-700: #b42318;
+  --color-danger-100: #fdecea;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-poppins), var(--font-inter), sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-cream-100);
+  color: var(--color-navy-900);
+  font-variant-numeric: tabular-nums;
 }

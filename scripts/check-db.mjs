@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 // Pemeriksa skema tanpa Docker: menjalankan semua migrasi + seed di PGlite (Postgres WASM)
 // dengan tiruan minimal skema auth Supabase, lalu menguji aturan akses dan alur utama.
 // Jalankan: npm run db:check

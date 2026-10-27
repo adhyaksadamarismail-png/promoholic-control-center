@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Promo.Holic Control Center
 
-## Getting Started
+Dashboard internal operasional Promo.Holic: akun & voucher (VM dan Panel Admin), transaksi order, stok & restock,
+keuangan, absensi, uang saku, bonus shift tambahan, dan benefit KopKen.
 
-First, run the development server:
+Tahap ini: **fondasi pengembangan lokal** — skema database, aturan akses, fungsi server, data dummy, login dengan CAPTCHA,
+dan kerangka aplikasi. Belum terhubung ke database produksi dan belum di-deploy.
+
+## Teknologi
+
+- Next.js 15 (App Router, TypeScript, Tailwind CSS 4)
+- Supabase: Auth, PostgreSQL, Row Level Security, fungsi `SECURITY DEFINER`
+- Cloudflare Turnstile untuk CAPTCHA (diverifikasi di server)
+
+## Menjalankan secara lokal
+
+Kebutuhan: Node.js 20+, dan **Docker Desktop** (atau OrbStack) untuk Supabase lokal.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run db:start          # menjalankan Supabase lokal, menampilkan URL, anon key, service role key
+cp .env.example .env.local # lalu isi kunci dari output db:start
+npm run db:reset          # menerapkan migrasi + seed data dummy
+npm run dev               # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Akun uji lokal ada di `supabase/seed.sql` (username `owner`, `rani`, `dimas`, `sekar`, `bayu`).
+Kunci Turnstile di `.env.example` adalah kunci uji resmi Cloudflare yang selalu lolos — ganti untuk staging/produksi.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Pemeriksaan tanpa Docker
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run db:check
+```
 
-## Learn More
+Menjalankan semua migrasi + seed di PGlite (Postgres di Node) dengan tiruan skema `auth`, lalu menguji aturan akses dan
+alur utama: penolakan VM untuk staf, voucher utama tidak dibuat ulang, idempotensi restock, aturan minimum/maks potongan,
+voucher tidak bisa dipakai dua kali, pembatalan resmi, urutan absen, klaim benefit sekali per shift, dan pencairan
+sekali per periode. Ini tidak menggantikan pengujian dengan Supabase asli.
 
-To learn more about Next.js, take a look at the following resources:
+## Struktur
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+supabase/migrations/
+  …0001_core.sql                 profil & peran, audit log, persetujuan, percobaan login
+  …0002_inventory_orders.sql     brand, harga modal berversi, voucher berversi, device VM, akun, voucher, restock, order
+  …0003_attendance.sql           jadwal, shift, absensi, aturan uang saku & bonus, earning, payroll, benefit
+  …0004_rls.sql                  RLS + view tersamar untuk staf
+  …0005_functions_inventory.sql  restock VM/Panel, tambah stok, order, draft, pembatalan, koreksi stok
+  …0006_functions_attendance.sql shift, absen, earning, payroll, klaim benefit, persetujuan, akun staf
+supabase/seed.sql                data dummy lokal
+scripts/check-db.mjs             pemeriksa PGlite
+src/app/login                    login + Turnstile
+src/app/api/auth                 route login (rate limit + CAPTCHA) & logout
+src/app/(app)                    kerangka aplikasi setelah login
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Prinsip keamanan
 
-## Deploy on Vercel
+- Tidak ada pendaftaran publik; akun staf dibuat owner. Password di-hash Supabase Auth.
+- Peran dibaca dari tabel `profiles` berdasarkan sesi, tidak pernah dari input.
+- Semua penulisan data operasional lewat fungsi database yang mengecek peran; staf tidak punya hak INSERT/UPDATE/DELETE langsung.
+- Waktu absen dan klaim selalu `now()` di server. Histori stok, absensi, dan audit log hanya bisa ditambah.
+- `SUPABASE_SERVICE_ROLE_KEY` hanya dipakai di route server.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Nilai yang masih contoh (bisa diubah owner)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Tarif bonus shift tambahan (seed: Rp4.500/jam bersih), batas istirahat wajar (120 menit), batas durasi wajar (14 jam),
+dan batas uang saku (tidak dibatasi). Semua tersimpan sebagai aturan berversi, bukan angka di kode.
