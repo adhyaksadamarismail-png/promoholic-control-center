@@ -45,8 +45,11 @@ export default async function HomePage() {
         <h2 className="font-display text-base font-semibold">Shift hari ini</h2>
         {!shifts?.length && <p className="text-sm text-ink-500">Tidak ada shift terjadwal hari ini.</p>}
         {shifts?.map((s) => {
-          const claims = (s.benefit_entitlements as unknown as { benefit_claims: { claimed_at: string; voided_at: string | null }[] }[])
-            ?.flatMap((e) => e.benefit_claims)
+          // shift_id unik di benefit_entitlements, jadi Supabase mengembalikan objek tunggal (bukan array).
+          type Ent = { benefit_claims: { claimed_at: string; voided_at: string | null }[] }
+          const ent = s.benefit_entitlements as unknown as Ent | Ent[] | null
+          const claims = (Array.isArray(ent) ? ent : ent ? [ent] : [])
+            .flatMap((e) => e.benefit_claims ?? [])
             .filter((c) => !c.voided_at)
           return (
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-navy-900 p-4 text-white">

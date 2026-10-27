@@ -27,6 +27,15 @@ npm run dev               # http://localhost:3000
 Akun uji lokal ada di `supabase/seed.sql` (username `owner`, `rani`, `dimas`, `sekar`, `bayu`).
 Kunci Turnstile di `.env.example` adalah kunci uji resmi Cloudflare yang selalu lolos — ganti untuk staging/produksi.
 
+Jika `db:start` gagal karena health check container tambahan (Studio, storage) kehabisan waktu, jalankan layanan inti saja:
+
+```bash
+npx supabase start -x studio,postgres-meta,edge-runtime,logflare,vector,imgproxy,storage-api
+```
+
+Jika perintah `docker` tidak dikenali padahal Docker Desktop sudah berjalan, buka Docker Desktop sekali agar CLI-nya terpasang,
+atau tambahkan `/Applications/Docker.app/Contents/Resources/bin` ke PATH.
+
 ### Pemeriksaan tanpa Docker
 
 ```bash

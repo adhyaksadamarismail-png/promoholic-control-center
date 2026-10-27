@@ -19,7 +19,8 @@ create schema auth;
 create table auth.users (id uuid primary key, instance_id uuid, aud text, role text, email text unique,
   encrypted_password text, email_confirmed_at timestamptz, raw_app_meta_data jsonb, raw_user_meta_data jsonb,
   created_at timestamptz, updated_at timestamptz, confirmation_token text, recovery_token text,
-  email_change text, email_change_token_new text);
+  email_change text, email_change_token_new text, email_change_token_current text, phone_change text,
+  phone_change_token text, reauthentication_token text);
 create table auth.identities (id uuid primary key, user_id uuid references auth.users, provider_id text,
   identity_data jsonb, provider text, last_sign_in_at timestamptz, created_at timestamptz, updated_at timestamptz);
 create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users);
