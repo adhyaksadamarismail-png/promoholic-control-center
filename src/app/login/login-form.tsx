@@ -1,7 +1,6 @@
 'use client'
 
 import Script from 'next/script'
-import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 type Turnstile = {
@@ -15,7 +14,6 @@ declare global {
 }
 
 export function LoginForm({ siteKey }: { siteKey: string }) {
-  const router = useRouter()
   const box = useRef<HTMLDivElement>(null)
   const widgetId = useRef<string | null>(null)
   const [scriptReady, setScriptReady] = useState(false)
@@ -25,6 +23,7 @@ export function LoginForm({ siteKey }: { siteKey: string }) {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [redirecting, setRedirecting] = useState(false)
 
   const renderWidget = useCallback(() => {
     if (!box.current || !window.turnstile || widgetId.current || !siteKey) return
@@ -54,12 +53,13 @@ export function LoginForm({ siteKey }: { siteKey: string }) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ username, password, captchaToken: token }),
     })
-    setBusy(false)
     if (res.ok) {
-      router.replace('/')
-      router.refresh()
+      // Tetap dalam status sibuk sampai beranda terbuka; navigasi penuh agar cookie sesi baru langsung dipakai.
+      setRedirecting(true)
+      window.location.assign('/')
       return
     }
+    setBusy(false)
     const data = (await res.json().catch(() => ({}))) as { error?: string }
     setError(data.error ?? 'Login gagal. Coba lagi.')
     setPassword('')
@@ -132,7 +132,7 @@ export function LoginForm({ siteKey }: { siteKey: string }) {
         disabled={busy}
         className="min-h-12 rounded-lg bg-navy-900 font-semibold text-white disabled:bg-[#e7e2d8] disabled:text-[#6e7689]"
       >
-        {busy ? 'Memeriksa…' : 'Masuk'}
+        {redirecting ? 'Berhasil, membuka beranda…' : busy ? 'Memeriksa…' : 'Masuk'}
       </button>
     </form>
   )
