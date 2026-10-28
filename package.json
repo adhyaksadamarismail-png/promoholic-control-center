@@ -9,7 +9,7 @@
     "lint": "eslint",
     "db:check": "node scripts/check-db.mjs",
     "test:security": "node scripts/security-check.mjs",
-    "db:start": "supabase start -x studio,postgres-meta,edge-runtime,logflare,vector,imgproxy,storage-api,realtime",
+    "db:start": "supabase start --ignore-health-check -x studio,postgres-meta,edge-runtime,logflare,vector,imgproxy,realtime",
     "db:reset": "supabase db reset"
   },
   "dependencies": {

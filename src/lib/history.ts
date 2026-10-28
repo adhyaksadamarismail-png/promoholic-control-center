@@ -12,7 +12,7 @@ export type HistoryRow = {
   status: string
   ref: string | null
   voucherCode: string
-  accountId: string
+  accountId: string | null
   accountCode: string
   typeName: string
   customer: string | null
@@ -40,7 +40,7 @@ export async function loadHistory(supabase: SupabaseClient, f: HistoryFilter): P
   const { data: ledger } = await lq
   const rows = ledger ?? []
   const vIds = [...new Set(rows.map((r) => r.voucher_id))]
-  const aIds = [...new Set(rows.map((r) => r.account_id))]
+  const aIds = [...new Set(rows.map((r) => r.account_id).filter((x): x is string => !!x))]
 
   const [{ data: vouchers }, { data: accounts }, { data: types }, { data: usages }, { data: profiles }, { data: approvals }] = await Promise.all([
     supabase.from('vouchers').select('id, code, voucher_type_id').in('id', vIds),
@@ -72,7 +72,7 @@ export async function loadHistory(supabase: SupabaseClient, f: HistoryFilter): P
       ref: r.ref,
       voucherCode: v?.code ?? '—',
       accountId: r.account_id,
-      accountCode: a?.account_code ?? '—',
+      accountCode: a?.account_code ?? (r.account_id ? '—' : 'Tanpa akun'),
       typeName: types?.find((t) => t.id === v?.voucher_type_id)?.name ?? '',
       customer: u?.customer_name ?? null,
       wa: u?.customer_wa ?? null,
@@ -86,7 +86,7 @@ export async function loadHistory(supabase: SupabaseClient, f: HistoryFilter): P
   const q = f.q?.trim().toLowerCase()
   return out.filter(
     (r) =>
-      (!f.brand || r.accountCode.startsWith(f.brand + '-')) &&
+      (!f.brand || r.voucherCode.startsWith(`V-${f.brand}`)) &&
       (!q || [r.voucherCode, r.accountCode, r.orderCode, r.customer, r.ref].some((x) => x?.toLowerCase().includes(q))),
   )
 }

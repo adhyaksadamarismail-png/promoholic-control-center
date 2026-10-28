@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/server'
-import { BottomTabs, MobileMenu, SideNav } from './nav'
+import { MobileNav, SideNav } from './nav'
 
 const STAFF_NAV = [
   { href: '/', label: 'Beranda' },
@@ -39,11 +39,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      {/* HP: header ringkas; menu lengkap lewat tombol, pintasan harian di bilah bawah. */}
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-3 bg-navy-900 px-4 py-2.5 md:hidden">
-        {logo}
-        <MobileMenu staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} name={profile.full_name} role={roleLabel} />
-      </header>
+      {/* HP: header ringkas, menu lipat dengan backdrop, dan bilah tab bawah (disembunyikan saat menu terbuka). */}
+      <MobileNav logo={logo} staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} name={profile.full_name} role={roleLabel} />
 
       <aside className="hidden flex-[0_0_244px] flex-col gap-4 bg-navy-900 px-3.5 py-5 text-[#c5cbd9] md:flex">
         <div className="px-2 pb-2">{logo}</div>
@@ -59,8 +56,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-4 pb-24 pt-5 sm:px-8 md:pb-12 md:pt-6">{children}</main>
-      <BottomTabs />
+      <main className="min-w-0 flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-5 sm:px-8 md:pb-12 md:pt-6">{children}</main>
     </div>
   )
 }

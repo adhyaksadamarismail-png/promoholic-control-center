@@ -4,6 +4,8 @@ const nextConfig: NextConfig = {
   // Pengembangan saja: izinkan membuka dev server dari HP di Wi-Fi yang sama (DEV_LAN_ORIGIN = alamat IP Mac).
   allowedDevOrigins: process.env.DEV_LAN_ORIGIN ? [process.env.DEV_LAN_ORIGIN] : [],
   poweredByHeader: false,
+  // Receipt benefit diunggah lewat server action (maks 5 MB di server); batas bawaan 1 MB.
+  experimental: { serverActions: { bodySizeLimit: "6mb" } },
   async headers() {
     return [
       {

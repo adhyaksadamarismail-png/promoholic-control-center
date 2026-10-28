@@ -9,7 +9,7 @@ Belum terhubung ke database produksi dan belum di-deploy.
 
 Halaman yang sudah aktif: `/attendance`, `/owner/attendance`, `/approvals`, `/orders/new`, `/accounts`, `/accounts/[id]`,
 `/accounts/export`, `/panel`, `/stock`, `/stock/export`, `/vm`, `/finance`, `/finance/export`, `/vouchers/history`,
-`/vouchers/history/export`, `/settings/vouchers`, `/account/password`. Semua menu di desain sudah memiliki halaman.
+`/vouchers/history/export`, `/settings/vouchers`, `/api/benefit-receipt/[claim]`, `/account/password`. Semua menu di desain sudah memiliki halaman.
 
 ## Teknologi
 
@@ -33,7 +33,7 @@ npm run dev               # http://localhost:3000
 Akun uji lokal ada di `supabase/seed.sql` (username `owner`, `rani`, `dimas`, `sekar`, `bayu`).
 Kunci Turnstile di `.env.example` adalah kunci uji resmi Cloudflare yang selalu lolos — ganti untuk staging/produksi.
 
-`db:start` hanya menjalankan layanan yang dipakai aplikasi (database, Auth, REST). Studio, storage, realtime, dan
+`db:start` hanya menjalankan layanan yang dipakai aplikasi (database, Auth, REST, Storage untuk bukti receipt). Studio, realtime, dan
 layanan lain sengaja dilewati karena health check-nya sering membuat start/reset macet.
 
 Jika perintah `docker` tidak dikenali padahal Docker Desktop sudah berjalan, buka Docker Desktop sekali agar CLI-nya terpasang,
@@ -87,6 +87,9 @@ src/lib                          format, pemanggil RPC, aturan tampilan absensi 
 - CAPTCHA diverifikasi oleh Supabase Auth sendiri (`[auth.captcha]`), jadi login langsung ke API tanpa token juga ditolak.
 - Cookie sesi `httpOnly` + `SameSite=Lax` (`Secure` di produksi); header keamanan (anti-iframe, nosniff, HSTS di produksi).
 - Akun yang direset owner tidak bisa beraksi lewat API sampai password benar-benar diganti (dicek dari hash, bukan pengakuan klien).
+- Bukti receipt benefit disimpan di bucket Storage privat `benefit-receipts` (tanpa URL publik, maks 5 MB, JPG/PNG/WebP
+  dicek dari isi file). Admin hanya bisa mengunggah/membaca foldernya sendiri; owner membaca lewat route aplikasi, dan
+  persetujuan klaim ditolak database bila owner belum membuka buktinya.
 - Peran dibaca dari tabel `profiles` berdasarkan sesi, tidak pernah dari input.
 - Semua penulisan data operasional lewat fungsi database yang mengecek peran; staf tidak punya hak INSERT/UPDATE/DELETE langsung.
 - Waktu absen dan klaim selalu `now()` di server. Histori stok, absensi, dan audit log hanya bisa ditambah.

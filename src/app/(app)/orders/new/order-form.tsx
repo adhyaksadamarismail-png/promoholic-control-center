@@ -8,7 +8,7 @@ import { createOrder } from './actions'
 
 type Brand = { id: string; name: string }
 type Account = { id: string; brand_id: string; account_code: string; source: 'vm' | 'panel'; active_until: string | null }
-type Voucher = { id: string; code: string; account_id: string; voucher_type_id: string; grp: 'main' | 'extra'; allocated_cost: number | string }
+type Voucher = { id: string; code: string; account_id: string; voucher_type_id: string; grp: 'main' | 'extra'; allocated_cost: number | string | null }
 type VType = { id: string; brand_id: string; code: string; name: string; grp: 'main' | 'extra'; sort_order: number }
 type Version = Rule & { id: string; voucher_type_id: string; effective_from: string }
 
@@ -86,11 +86,12 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
   const rule = voucher ? ruleFor(voucher) : null
   const pv = previewDiscount(menu ?? 0, rule, manual)
   const after = override ?? (pv.discount !== null && menu ? menu - pv.discount : null)
-  const cost = voucher ? Number(voucher.allocated_cost) : 0
+  const costUnknown = !!voucher && voucher.allocated_cost === null
+  const cost = voucher ? Number(voucher.allocated_cost ?? 0) : 0
   const hpp = after !== null ? after + cost : null
   const gross = hpp !== null && sell !== null ? sell - hpp : null
   const net = gross !== null ? gross - (extra ?? 0) : null
-  const reasons = [...pv.reasons, ...(override !== null && pv.discount !== null && menu && override !== menu - pv.discount ? ['Harga merchant berbeda dari hitungan voucher'] : [])]
+  const reasons = [...pv.reasons, ...(costUnknown ? ['Modal voucher belum diisi'] : []), ...(override !== null && pv.discount !== null && menu && override !== menu - pv.discount ? ['Harga merchant berbeda dari hitungan voucher'] : [])]
   const shown = state === ack ? null : state
   const done = shown?.ok ? (shown.data as string) : null
 
@@ -316,7 +317,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
           ['Potongan voucher', pv.discount !== null ? `− ${rp(pv.discount)}` : '—'],
           ['Bayar ke merchant', rp(after)],
           ['Omzet (harga jual)', rp(sell)],
-          ['Modal dialokasikan', voucher ? rp(cost) : '—'],
+          ['Modal dialokasikan', voucher ? (costUnknown ? 'Belum diisi (Rp0)' : rp(cost)) : '—'],
           ['HPP = merchant + modal', hpp !== null ? `− ${rp(hpp)}` : '—'],
           ['Laba kotor', rp(gross)],
           ['Biaya tambahan', `− ${rp(extra ?? 0)}`],

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, Pill, Table, inputCls, labelCls } from '@/components/ui'
-import { WEEKDAYS, addDays, dateLabel, isoToJktLocal, jktDate, jktDateTime, jktTime, minutesLabel, rupiah } from '@/lib/format'
+import { WEEKDAYS, addDays, dateLabel, isYmd, isoToJktLocal, jktDate, jktDateTime, jktTime, minutesLabel, rupiah } from '@/lib/format'
 import {
   EARNING_STATUS,
   KIND_LABEL,
@@ -29,7 +29,9 @@ import {
   setSchedule,
   setStaffActive,
   setStaffPermission,
+  verifyBenefit,
 } from './actions'
+import { ReceiptViewer } from './receipt-viewer'
 
 export type Profile = {
   id: string
@@ -40,7 +42,7 @@ export type Profile = {
   can_restock_panel: boolean
   must_change_password: boolean
 }
-type Props = { supabase: SupabaseClient; week: string; profiles: Profile[] }
+type Props = { supabase: SupabaseClient; week: string; profiles: Profile[]; sp?: Record<string, string | undefined> }
 
 function one<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null)
@@ -308,36 +310,110 @@ export async function PayrollTab({ supabase, week, profiles }: Props) {
 }
 
 /* ───────────── Benefit ───────────── */
-export async function BenefitTab({ supabase, week, profiles }: Props) {
-  const { data } = await supabase
-    .from('shifts')
-    .select('id, code, admin_id, shift_date, status, benefit_entitlements(id, benefit_claims(id, admin_id, claimed_at, voided_at))')
-    .gte('shift_date', week)
-    .lte('shift_date', addDays(week, 6))
-    .order('planned_start')
-  type Claim = { id: string; admin_id: string; claimed_at: string; voided_at: string | null }
-  const rows = (data ?? []) as unknown as { id: string; code: string; admin_id: string; shift_date: string; status: string; benefit_entitlements: { benefit_claims: Claim[] } | null }[]
+const CLAIM_STATUS: Record<string, { label: string; tone: 'warning' | 'success' | 'danger' | 'neutral' }> = {
+  pending: { label: 'Menunggu Verifikasi', tone: 'warning' },
+  verified: { label: 'Terverifikasi', tone: 'success' },
+  rejected: { label: 'Ditolak', tone: 'danger' },
+}
+const CUP: Record<string, string> = { regular: 'Regular', large: 'Large' }
+
+export async function BenefitTab({ supabase, week, profiles, sp = {} }: Props) {
+  const from = isYmd(sp.from) ? sp.from : week
+  const to = isYmd(sp.to) ? sp.to : addDays(week, 6)
+  let q = supabase
+    .from('benefit_claims')
+    .select('id, admin_id, cup_size, status, claimed_at, voided_at, receipt_path, receipt_viewed_at, verified_by, verified_at, review_note, shifts!inner(code, shift_date)')
+    .gte('shifts.shift_date', from)
+    .lte('shifts.shift_date', to)
+    .order('claimed_at', { ascending: false })
+  if (sp.admin && profiles.some((p) => p.id === sp.admin)) q = q.eq('admin_id', sp.admin)
+  if (sp.cup === 'regular' || sp.cup === 'large') q = q.eq('cup_size', sp.cup)
+  if (sp.status && sp.status in CLAIM_STATUS) q = q.eq('status', sp.status)
+  const [{ data }, { count: noClaim }] = await Promise.all([
+    q,
+    supabase.from('benefit_entitlements').select('id, shifts!inner(shift_date, status), benefit_claims(id)', { count: 'exact', head: true })
+      .gte('shifts.shift_date', from).lte('shifts.shift_date', to).is('benefit_claims', null),
+  ])
+  type Row = {
+    id: string; admin_id: string; cup_size: string | null; status: string; claimed_at: string; voided_at: string | null
+    receipt_path: string | null; receipt_viewed_at: string | null; verified_by: string | null; verified_at: string | null
+    review_note: string | null; shifts: { code: string; shift_date: string } | { code: string; shift_date: string }[]
+  }
+  const rows = ((data ?? []) as unknown as Row[]).map((r) => ({ ...r, shift: one(r.shifts)! }))
+  const pending = rows.filter((r) => r.status === 'pending' && !r.voided_at).length
+
   return (
-    <Card title="Benefit KopKen per shift">
-      <Table head={['Shift', 'Admin', 'Hak', 'Status klaim', 'Waktu klaim', 'Dicatat', 'Catatan']} empty="Belum ada shift minggu ini.">
-        {rows.map((s) => {
-          const claims = one(s.benefit_entitlements)?.benefit_claims ?? []
-          const active = claims.find((c) => !c.voided_at)
-          const voided = claims.filter((c) => c.voided_at)
+    <Card title="Verifikasi Benefit KopKen" aside={<span className="text-sm text-ink-500">{pending} menunggu verifikasi · {noClaim ?? 0} shift belum diajukan</span>}>
+      <form className="grid grid-cols-2 items-end gap-2 md:flex md:flex-wrap" role="search">
+        <input type="hidden" name="tab" value="benefit" />
+        <input type="hidden" name="week" value={week} />
+        <label className={labelCls}>Dari<input type="date" name="from" defaultValue={from} className={inputCls} /></label>
+        <label className={labelCls}>Sampai<input type="date" name="to" defaultValue={to} className={inputCls} /></label>
+        <label className={labelCls}>
+          Admin
+          <select name="admin" defaultValue={sp.admin ?? ''} className={inputCls}>
+            <option value="">Semua admin</option>
+            {staffOf(profiles).map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+          </select>
+        </label>
+        <label className={labelCls}>
+          Ukuran
+          <select name="cup" defaultValue={sp.cup ?? ''} className={inputCls}>
+            <option value="">Semua ukuran</option>
+            <option value="regular">Regular</option>
+            <option value="large">Large</option>
+          </select>
+        </label>
+        <label className={labelCls}>
+          Status
+          <select name="status" defaultValue={sp.status ?? ''} className={inputCls}>
+            <option value="">Semua status</option>
+            {Object.entries(CLAIM_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </label>
+        <button className="min-h-11 rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white">Terapkan</button>
+      </form>
+
+      <Table head={['Tanggal shift', 'ID shift', 'Admin', 'Ukuran', 'Diajukan', 'Bukti receipt', 'Status', 'Keputusan / catatan']} empty="Tidak ada pengajuan untuk filter ini.">
+        {rows.map((r) => {
+          const st = r.voided_at ? { label: 'Dibatalkan', tone: 'neutral' as const } : CLAIM_STATUS[r.status]
           return (
-            <tr key={s.id}>
-              <td><div className="font-semibold">{s.code}</div><div className="text-xs text-ink-500">{dateLabel(s.shift_date)}</div></td>
-              <td>{nameOf(profiles, s.admin_id)}</td>
-              <td>1 cup</td>
-              <td><Pill tone={active ? 'success' : 'neutral'}>{active ? 'Diambil' : 'Belum diambil'}</Pill></td>
-              <td>{active ? jktDateTime(active.claimed_at) : '—'}</td>
-              <td>{active ? `${nameOf(profiles, active.admin_id)} (sesi login)` : '—'}</td>
-              <td className="text-xs text-ink-500">{voided.map((v) => `Dibatalkan owner ${jktDateTime(v.voided_at)}`).join('; ') || '—'}</td>
+            <tr key={r.id}>
+              <td className="whitespace-nowrap">{dateLabel(r.shift.shift_date)}</td>
+              <td className="whitespace-nowrap font-mono text-[13px]">{r.shift.code}</td>
+              <td className="font-semibold">{nameOf(profiles, r.admin_id)}</td>
+              <td>{r.cup_size ? CUP[r.cup_size] : '—'}</td>
+              <td className="whitespace-nowrap">{jktDateTime(r.claimed_at)}</td>
+              <td>
+                {r.receipt_path ? <ReceiptViewer claimId={r.id} viewed={!!r.receipt_viewed_at} /> : <span className="text-xs text-ink-500">Tidak ada (klaim lama)</span>}
+              </td>
+              <td><Pill tone={st.tone}>{st.label}</Pill></td>
+              <td>
+                {r.status === 'pending' && !r.voided_at ? (
+                  <ActionForm action={verifyBenefit} className="flex w-60 flex-col gap-1.5">
+                    <input type="hidden" name="claim" value={r.id} />
+                    <input name="note" placeholder="Catatan / alasan penolakan" className={inputCls} />
+                    <div className="flex gap-1.5">
+                      <SubmitButton name="decision" value="approve" variant="success" className="min-h-9 px-3">Setujui</SubmitButton>
+                      <SubmitButton name="decision" value="reject" variant="danger" className="min-h-9 px-3">Tolak</SubmitButton>
+                    </div>
+                  </ActionForm>
+                ) : (
+                  <span className="text-xs text-ink-500">
+                    {r.verified_at ? `${nameOf(profiles, r.verified_by ?? '')} · ${jktDateTime(r.verified_at)}` : ''}
+                    {r.review_note ? ` · ${r.review_note}` : ''}
+                    {r.voided_at ? ` · dibatalkan ${jktDateTime(r.voided_at)}` : ''}
+                  </span>
+                )}
+              </td>
             </tr>
           )
         })}
       </Table>
-      <Note>Klaim dicatat dari sesi login staf, satu per shift (index unik di database). Pembatalan klaim lewat Persetujuan, dan klaim lama tetap tersimpan.</Note>
+      <Note>
+        Setujui hanya setelah membuka bukti receipt (dicek ulang di server). Penolakan wajib beralasan; admin melihat alasannya dan bisa mengajukan ulang.
+        Pengajuan yang ditolak tetap tersimpan, dan setiap perubahan status tercatat di audit log.
+      </Note>
     </Card>
   )
 }

@@ -23,7 +23,7 @@ export default async function HomePage() {
     supabase.from('profiles').select('full_name, role').eq('id', auth.user!.id).single(),
     supabase
       .from('shifts')
-      .select('id, code, kind, planned_start, planned_end, status, benefit_entitlements(benefit_claims(claimed_at, voided_at))')
+      .select('id, code, kind, planned_start, planned_end, status, benefit_entitlements(benefit_claims(claimed_at, voided_at, status))')
       .eq('admin_id', auth.user!.id)
       .eq('shift_date', jktToday())
       .order('planned_start'),
@@ -44,7 +44,7 @@ export default async function HomePage() {
         {!shifts?.length && <p className="text-sm text-ink-500">Tidak ada shift terjadwal hari ini.</p>}
         {shifts?.map((s) => {
           // shift_id unik di benefit_entitlements, jadi Supabase mengembalikan objek tunggal (bukan array).
-          type Ent = { benefit_claims: { claimed_at: string; voided_at: string | null }[] }
+          type Ent = { benefit_claims: { claimed_at: string; voided_at: string | null; status: string }[] }
           const ent = s.benefit_entitlements as unknown as Ent | Ent[] | null
           const claims = (Array.isArray(ent) ? ent : ent ? [ent] : [])
             .flatMap((e) => e.benefit_claims ?? [])
@@ -57,7 +57,8 @@ export default async function HomePage() {
                   {s.kind === 'regular' ? 'Reguler' : 'Tambahan'} · {jktTime(s.planned_start)}–{jktTime(s.planned_end)}
                 </span>
                 <span className="text-sm text-[#c5cbd9]">
-                  {STATUS[s.status] ?? s.status} · Benefit KopKen: {claims?.length ? 'sudah diambil' : 'belum diambil'}
+                  {STATUS[s.status] ?? s.status} · Benefit KopKen:{' '}
+                  {claims.some((c) => c.status === 'verified') ? 'sudah diambil' : claims.some((c) => c.status === 'pending') ? 'menunggu verifikasi' : 'belum diambil'}
                 </span>
               </div>
             </div>

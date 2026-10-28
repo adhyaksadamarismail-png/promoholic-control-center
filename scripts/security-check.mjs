@@ -146,7 +146,12 @@ section('5. Staf memanggil fungsi khusus owner / internal')
   await expectDenied('staf berizin menambah stok ke akun VM', rani.rpc('add_stock', { p_account: vmAcc.id, p_items: [{ type: 'BP', qty: 1 }], p_idem: randomUUID() }))
   const { data: other } = await owner.from('shifts').select('id').eq('admin_id', ids.dimas).limit(1).single()
   await expectDenied('staf absen di shift admin lain', rani.rpc('attendance_action', { p_shift: other.id, p_kind: 'clock_in' }))
-  await expectDenied('staf klaim benefit shift admin lain', rani.rpc('claim_benefit', { p_shift: other.id }))
+  await expectDenied('staf ajukan benefit shift admin lain', rani.rpc('submit_benefit_claim', { p_shift: other.id, p_cup_size: 'regular', p_receipt_path: `${ids.rani}/${other.id}/x.jpg` }))
+  await expectDenied('klaim lama tanpa ukuran & bukti', rani.rpc('claim_benefit', { p_shift: other.id }))
+  await expectDenied('staf memverifikasi klaim benefit', rani.rpc('verify_benefit_claim', { p_claim: randomUUID(), p_approve: true, p_note: null }))
+  await expectDenied('staf menandai bukti sudah diperiksa', rani.rpc('mark_benefit_receipt_viewed', { p_claim: randomUUID() }))
+  await expectDenied('staf tanpa izin restock Baperan saja', dimas.rpc('restock_extra_only', { p_type: randomUUID(), p_qty: 1, p_account: null, p_unit_cost: 0, p_source_note: 'uji', p_received_on: '2026-10-28', p_idem: randomUUID() }))
+  await expectDenied('staf mengisi modal restock', rani.rpc('set_restock_unit_cost', { p_restock: randomUUID(), p_unit_cost: 0 }))
 }
 
 // ───────────────────────────────────────────────────────────
@@ -168,6 +173,10 @@ section('6. Alur bersamaan & kiriman ganda')
 
   // Cari staf yang punya shift berjalan sekarang (jadwal seed bergantung hari & jam saat uji dijalankan).
   const nowIso = new Date().toISOString()
+  // Bila tidak ada shift berjalan (tergantung jam uji), owner membuat shift tambahan untuk Sekar mulai sekarang.
+  const { data: running } = await owner.from('shifts').select('id').eq('status', 'scheduled')
+    .lte('planned_start', new Date(Date.now() + 2 * 3600e3).toISOString()).gte('planned_end', nowIso).in('admin_id', [ids.rani, ids.sekar]).limit(1)
+  if (!running?.length) await owner.rpc('add_extra_shift', { p_admin: ids.sekar, p_start: new Date(Date.now() - 60e3).toISOString(), p_end: new Date(Date.now() + 4 * 3600e3).toISOString() })
   const { data: sh } = await owner.from('shifts').select('id, admin_id').eq('status', 'scheduled')
     .lte('planned_start', new Date(Date.now() + 2 * 3600e3).toISOString()).gte('planned_end', nowIso).in('admin_id', [ids.rani, ids.sekar])
     .limit(1).maybeSingle()
@@ -175,12 +184,45 @@ section('6. Alur bersamaan & kiriman ganda')
   if (sh) {
     const starts = await Promise.all([1, 2].map(() => who.rpc('attendance_action', { p_shift: sh.id, p_kind: 'clock_in' })))
     starts.filter((r) => !r.error).length === 1 ? ok('absen masuk 2× bersamaan → 1 tercatat') : bad('absen masuk ganda')
-    const claims = await Promise.all([1, 2, 3].map(() => who.rpc('claim_benefit', { p_shift: sh.id })))
+    const me = sh.admin_id
+    const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46])
+    const paths = [1, 2, 3].map((n) => `${me}/${sh.id}/uji-${n}-${randomUUID()}.jpg`)
+    for (const pth of paths) await who.storage.from('benefit-receipts').upload(pth, jpg, { contentType: 'image/jpeg' })
+    const claims = await Promise.all(paths.map((pth) => who.rpc('submit_benefit_claim', { p_shift: sh.id, p_cup_size: 'regular', p_receipt_path: pth })))
     const n = claims.filter((r) => !r.error).length
-    n === 1 ? ok('klaim benefit 3× bersamaan → 1 tercatat') : bad(`${n} klaim benefit tercatat`)
+    n === 1 ? ok('pengajuan benefit 3× bersamaan → 1 tercatat (Menunggu Verifikasi)') : bad(`${n} pengajuan benefit tercatat`)
+    const claimId = claims.find((r) => !r.error)?.data
+    await expectDenied('owner menyetujui tanpa membuka bukti', owner.rpc('verify_benefit_claim', { p_claim: claimId, p_approve: true, p_note: null }))
+    await owner.rpc('mark_benefit_receipt_viewed', { p_claim: claimId })
+    const twice = await Promise.all([1, 2].map(() => owner.rpc('verify_benefit_claim', { p_claim: claimId, p_approve: true, p_note: null })))
+    twice.filter((r) => !r.error).length === 1 ? ok('persetujuan ganda bersamaan → 1 berhasil') : bad('persetujuan ganda')
     const outs = await Promise.all([1, 2].map(() => who.rpc('attendance_action', { p_shift: sh.id, p_kind: 'clock_out' })))
     outs.filter((r) => !r.error).length === 1 ? ok('absen pulang 2× bersamaan → 1 tercatat') : bad('absen pulang ganda')
   } else console.log('  · (lewati uji absen/klaim bersamaan: tidak ada shift Rani/Sekar yang sedang berjalan saat ini)')
+}
+
+// ───────────────────────────────────────────────────────────
+section('6b. Storage privat bukti receipt')
+{
+  const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46])
+  const mine = `${ids.rani}/${randomUUID()}/uji.jpg`
+  const up = await rani.storage.from('benefit-receipts').upload(mine, jpg, { contentType: 'image/jpeg' })
+  up.error ? bad('staf gagal unggah ke foldernya sendiri: ' + up.error.message) : ok('staf mengunggah ke foldernya sendiri')
+  const other = await rani.storage.from('benefit-receipts').upload(`${ids.dimas}/${randomUUID()}/palsu.jpg`, jpg, { contentType: 'image/jpeg' })
+  other.error ? ok('staf tidak bisa mengunggah ke folder admin lain') : bad('staf mengunggah ke folder admin lain')
+  const html = await rani.storage.from('benefit-receipts').upload(`${ids.rani}/${randomUUID()}/x.html`, new TextEncoder().encode('<script>1</script>'), { contentType: 'text/html' })
+  html.error ? ok('file non-gambar ditolak bucket') : bad('file HTML diterima bucket')
+  const peek = await dimas.storage.from('benefit-receipts').download(mine)
+  peek.error ? ok('staf lain tidak bisa mengunduh bukti milik Rani') : bad('staf lain mengunduh bukti Rani')
+  const anonDl = await client().storage.from('benefit-receipts').download(mine)
+  anonDl.error ? ok('anonim tidak bisa mengunduh bukti') : bad('anonim mengunduh bukti')
+  const pub = await fetch(client().storage.from('benefit-receipts').getPublicUrl(mine).data.publicUrl)
+  pub.ok ? bad('bukti terbuka lewat URL publik') : ok(`URL publik tidak berlaku (HTTP ${pub.status})`)
+  const own = await owner.storage.from('benefit-receipts').download(mine)
+  own.error ? bad('owner tidak bisa membuka bukti: ' + own.error.message) : ok('owner bisa membuka bukti')
+  const del = await rani.storage.from('benefit-receipts').remove([mine])
+  const still = await owner.storage.from('benefit-receipts').download(mine)
+  !still.error ? ok('bukti tidak bisa dihapus/diganti staf setelah diunggah') : bad('staf menghapus bukti: ' + JSON.stringify(del.data))
 }
 
 // ───────────────────────────────────────────────────────────

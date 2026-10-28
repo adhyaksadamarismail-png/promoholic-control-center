@@ -2,13 +2,16 @@ import { createSessionClient } from '@/lib/supabase/server'
 import { Card, Note, PageHeader, Table, Tabs } from '@/components/ui'
 import { jktDate, jktTime } from '@/lib/format'
 import { PanelForm } from './panel-form'
+import { ExtraRestockForm } from './extra-form'
+import { accountKey } from '@/lib/inventory'
 
 export const dynamic = 'force-dynamic'
 
 type Item = { type: string; qty: number }
 
 export default async function PanelPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
-  const mode = (await searchParams).mode === 'add' ? 'add' : 'new'
+  const m = (await searchParams).mode
+  const mode = m === 'add' || m === 'extra' ? m : 'new'
   const supabase = await createSessionClient()
   const { data: allowed } = await supabase.rpc('can_restock_panel')
 
@@ -43,6 +46,7 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
   })
   // Versi modal yang berlaku per brand: baris pertama per brand karena diurutkan dari yang terbaru.
   const latest = (brands ?? []).map((b) => (costs ?? []).find((c) => c.brand_id === b.id)).filter((c) => !!c)
+  const RESTOCK_KIND: Record<string, string> = { new_account: 'Akun baru', add_stock: 'Tambah voucher', extra_only: 'Baperan saja' }
   const codeOf = (id: string) => accounts?.find((a) => a.id === id)?.account_code ?? '—'
 
   return (
@@ -53,9 +57,19 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
         items={[
           { key: 'new', label: 'Akun baru', href: '/panel' },
           { key: 'add', label: 'Tambah voucher ke akun yang ada', href: '/panel?mode=add' },
+          { key: 'extra', label: 'Restock Baperan saja', href: '/panel?mode=extra' },
         ]}
         active={mode}
       />
+      {mode === 'extra' ? (
+        <ExtraRestockForm
+          brands={brands ?? []}
+          types={(types ?? []).filter((t) => t.grp === 'extra' && t.auto_per_account === null)}
+          versions={versions ?? []}
+          accounts={(accounts ?? []).filter((a) => a.source === 'panel')}
+          today={today}
+        />
+      ) : (
       <PanelForm
         key={mode}
         mode={mode}
@@ -63,19 +77,20 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
         types={types ?? []}
         versions={versions ?? []}
         accounts={(accounts ?? []).filter((a) => a.source === 'panel')}
-        existingCodes={(accounts ?? []).map((a) => a.account_code)}
+        existingKeys={(accounts ?? []).map((a) => `${a.brand_id}|${accountKey(a.brand_id, a.account_code)}`)}
         maxSlots={maxSlots}
         costs={latest}
         creditPrice={credit?.rp_per_credit ?? null}
       />
+      )}
 
       <Card title="Restock Panel hari ini">
         <Table head={['ID', 'Akun', 'Jenis operasi', 'Per jenis', 'Waktu', 'Oleh']} empty="Belum ada restock Panel hari ini.">
           {(todays ?? []).map((r) => (
             <tr key={r.id}>
               <td className="font-mono text-[13px] font-semibold">{r.code}</td>
-              <td className="font-mono text-[13px]">{codeOf(r.account_id)}</td>
-              <td>{r.kind === 'new_account' ? 'Akun baru' : 'Tambah voucher'}</td>
+              <td className="font-mono text-[13px]">{r.account_id ? codeOf(r.account_id) : 'Tanpa akun'}</td>
+              <td>{RESTOCK_KIND[r.kind] ?? r.kind}</td>
               <td>{(r.items as Item[]).map((i) => `${i.type}×${i.qty}`).join(', ')}</td>
               <td>{jktTime(r.created_at)}</td>
               <td>{profiles?.find((p) => p.id === r.created_by)?.full_name ?? '—'}</td>

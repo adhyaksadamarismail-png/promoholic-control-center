@@ -2,11 +2,12 @@ import Link from 'next/link'
 import { createSessionClient } from '@/lib/supabase/server'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, Table, Tabs, inputCls } from '@/components/ui'
-import { addDays, jktDate, jktDateTime, weekStart } from '@/lib/format'
+import { addDays, dateLabel, jktDate, jktDateTime, rupiah, weekStart } from '@/lib/format'
 import { ACCOUNT_STATE, VOUCHER_STATUS } from '@/lib/inventory'
 import { loadAccounts } from '@/lib/accounts'
 import { loadTypeSummary } from '@/lib/stock'
 import { decide } from '../approvals/actions'
+import { setRestockCost } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,11 +30,14 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   const brand = brands.some((b) => b.id === sp.brand) ? sp.brand : undefined
   const weekFrom = `${weekStart(jktDate())}T00:00:00+07:00`
 
-  const [summary, { count: weekRestocks }, { data: pendingAdj }] = await Promise.all([
+  let accQ = supabase.from('account_list').select('id', { count: 'exact', head: true })
+  if (brand) accQ = accQ.eq('brand_id', brand)
+  const [summary, { count: weekRestocks }, { data: pendingAdj }, { count: accountCount }] = await Promise.all([
     loadTypeSummary(supabase, brand),
     // RLS: staf hanya menghitung restock Panel.
     supabase.from('restocks').select('id', { count: 'exact', head: true }).gte('created_at', weekFrom),
     supabase.from('approval_requests').select('id').eq('kind', 'stock_adjust').eq('status', 'pending'),
+    accQ,
   ])
   const sum = (k: 'available' | 'used' | 'reserved' | 'expired' | 'broken') => summary.reduce((a, s) => a + s[k], 0)
   const href = (t: string, b = brand) => `/stock?tab=${t}${b ? `&brand=${b}` : ''}`
@@ -46,7 +50,9 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
       </PageHeader>
 
       <div className="flex flex-wrap gap-3">
-        <Stat label="Tersedia" value={sum('available')} sub={brand ? brands.find((b) => b.id === brand)?.name : 'semua brand'} />
+        <Stat label="Akun" value={accountCount ?? 0} sub={brand ? brands.find((b) => b.id === brand)?.name : 'semua brand'} />
+        <Stat label="Voucher utama tersedia" value={summary.filter((x) => x.grp === 'main').reduce((a, x) => a + x.available, 0)} />
+        <Stat label="Voucher tambahan tersedia" value={summary.filter((x) => x.grp === 'extra').reduce((a, x) => a + x.available, 0)} sub="mis. Baperan; dihitung per voucher, bukan per akun" />
         <Stat label="Terpakai" value={sum('used')} />
         <Stat label="Dipesan (draft)" value={sum('reserved')} />
         <Stat label="Kedaluwarsa / rusak" value={sum('expired') + sum('broken')} />
@@ -126,30 +132,51 @@ async function AccountsTab({ brand }: { brand?: string }) {
   )
 }
 
+const RESTOCK_KIND: Record<string, string> = { new_account: 'Akun baru + voucher utama', add_stock: 'Tambah ke akun', extra_only: 'Baperan saja' }
+
 async function RestockTab({ brand, isOwner }: { brand?: string; isOwner: boolean }) {
   const supabase = await createSessionClient()
   const since = `${addDays(jktDate(), -30)}T00:00:00+07:00`
   const [{ data: restocks }, { data: accounts }, { data: profiles }, { data: vouchers }] = await Promise.all([
-    supabase.from('restocks').select('id, code, source, account_id, vm_device_id, kind, items, created_by, created_at').gte('created_at', since).order('created_at', { ascending: false }),
+    supabase.from('restocks').select('id, code, source, account_id, brand_id, vm_device_id, kind, items, created_by, created_at, unit_cost, source_note, received_on').gte('created_at', since).order('created_at', { ascending: false }),
     supabase.from('account_list').select('id, brand_id, account_code'),
     supabase.from('profiles').select('id, full_name'),
     supabase.from('vouchers').select('restock_id').gte('created_at', since),
   ])
-  const acc = (id: string) => accounts?.find((a) => a.id === id)
-  const rows = (restocks ?? []).filter((r) => !brand || acc(r.account_id)?.brand_id === brand)
+  const acc = (id: string | null) => accounts?.find((a) => a.id === id)
+  const rows = (restocks ?? []).filter((r) => !brand || (r.brand_id ?? acc(r.account_id)?.brand_id) === brand)
   return (
     <>
       <Card title="Riwayat restock (30 hari)">
-        <Table head={['ID restock', 'Sumber', 'ID akun', 'Jenis operasi', 'Jumlah per jenis', 'Waktu', 'Oleh', 'Hasil']} empty="Belum ada restock.">
+        <Table head={['ID restock', 'Sumber', 'ID akun', 'Jenis operasi', 'Jumlah per jenis', 'Modal / sumber', 'Waktu', 'Oleh', 'Hasil']} empty="Belum ada restock.">
           {rows.map((r) => (
             <tr key={r.id}>
               <td className="font-mono text-[13px] font-semibold">{r.code}</td>
               <td>{r.source === 'vm' ? `VM${r.vm_device_id ? ' · ' + r.vm_device_id : ''}` : 'Panel'}</td>
               <td className="whitespace-nowrap font-mono text-[13px]">
-                <Link href={`/accounts/${r.account_id}`}>{acc(r.account_id)?.account_code}</Link>
+                {r.account_id ? <Link href={`/accounts/${r.account_id}`}>{acc(r.account_id)?.account_code}</Link> : <span className="text-ink-500">Tanpa akun</span>}
               </td>
-              <td>{r.kind === 'new_account' ? 'Akun baru' : 'Tambah voucher'}</td>
+              <td>{RESTOCK_KIND[r.kind] ?? r.kind}</td>
               <td>{(r.items as Item[]).map((i) => `${i.type}×${i.qty}`).join(', ')}</td>
+              <td className="text-xs">
+                {r.kind === 'extra_only' ? (
+                  <div className="flex flex-col gap-1">
+                    <span>
+                      {r.unit_cost === null ? <Pill tone="warning">Modal belum diisi</Pill> : `${rupiah(r.unit_cost)} / voucher`}
+                    </span>
+                    <span className="text-ink-500">{r.source_note}{r.received_on ? ` · ${dateLabel(r.received_on)}` : ''}</span>
+                    {isOwner && r.unit_cost === null && (
+                      <ActionForm action={setRestockCost} className="flex gap-1.5">
+                        <input type="hidden" name="restock" value={r.id} />
+                        <input name="unit_cost" inputMode="numeric" required placeholder="Rp/voucher" className={`${inputCls} w-28`} />
+                        <SubmitButton variant="ghost" className="min-h-11 px-3">Isi</SubmitButton>
+                      </ActionForm>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-ink-500">—</span>
+                )}
+              </td>
               <td className="whitespace-nowrap">{jktDateTime(r.created_at)}</td>
               <td>{profiles?.find((p) => p.id === r.created_by)?.full_name ?? '—'}</td>
               <td><Pill tone="success">{(vouchers ?? []).filter((v) => v.restock_id === r.id).length} voucher masuk</Pill></td>

@@ -29,6 +29,14 @@ export default async function NewOrderPage() {
     supabase.from('approval_requests').select('target_id').eq('kind', 'order_cancel').eq('status', 'pending'),
   ])
   const pendingCancel = new Set((pending ?? []).map((p) => p.target_id))
+  // Voucher tambahan tanpa akun (restock "Baperan saja") ditampilkan sebagai pilihan "Baperan lepas" per brand.
+  const brandOfType = (id: string) => types?.find((t) => t.id === id)?.brand_id ?? ''
+  const vouchersWithLots = (vouchers ?? []).map((v) => (v.account_id ? v : { ...v, account_id: `lot:${brandOfType(v.voucher_type_id)}` }))
+  const lotBrands = [...new Set(vouchersWithLots.filter((v) => v.account_id.startsWith('lot:')).map((v) => v.account_id.slice(4)))]
+  const accountsWithLots = [
+    ...lotBrands.map((b) => ({ id: `lot:${b}`, brand_id: b, account_code: 'Baperan lepas', source: 'panel' as const, active_until: null })),
+    ...(accounts ?? []),
+  ]
   const list = (orders ?? []).map((o) => ({
     o,
     v: (Array.isArray(o.vouchers) ? o.vouchers[0] : o.vouchers) as { code: string } | null,
@@ -64,7 +72,7 @@ export default async function NewOrderPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
       <PageHeader eyebrow="Transaksi Order" title="Catat order baru" />
-      <OrderForm brands={brands ?? []} accounts={accounts ?? []} vouchers={vouchers ?? []} types={types ?? []} versions={versions ?? []} />
+      <OrderForm brands={brands ?? []} accounts={accountsWithLots} vouchers={vouchersWithLots} types={types ?? []} versions={versions ?? []} />
 
       <Card title="Order terakhir saya">
         {/* HP: kartu per order; layar lebar: tabel. Aksi sama untuk keduanya. */}
@@ -85,7 +93,11 @@ export default async function NewOrderPage() {
                 <Pill tone={st.tone}>{st.label}</Pill>
                 {o.needs_review && <Pill tone="warning">Perlu tinjau owner</Pill>}
                 {pendingCancel.has(o.id) && <Pill tone="warning">Batal diajukan</Pill>}
-                <Link href={`/accounts/${o.account_id}`} className="ml-auto inline-flex min-h-8 items-center font-mono text-xs text-orange-700">{v?.code}</Link>
+                {o.account_id ? (
+                  <Link href={`/accounts/${o.account_id}`} className="ml-auto inline-flex min-h-8 items-center font-mono text-xs text-orange-700">{v?.code}</Link>
+                ) : (
+                  <span className="ml-auto font-mono text-xs text-ink-500">{v?.code}</span>
+                )}
               </div>
               {actions(o)}
             </li>
@@ -100,7 +112,11 @@ export default async function NewOrderPage() {
                 <td className="whitespace-nowrap font-mono text-[13px] font-semibold">{o.code}</td>
                 <td>{o.customer_name}</td>
                 <td>
-                  <Link href={`/accounts/${o.account_id}`} className="font-mono text-[13px] text-orange-700">{v?.code}</Link>
+                  {o.account_id ? (
+                    <Link href={`/accounts/${o.account_id}`} className="font-mono text-[13px] text-orange-700">{v?.code}</Link>
+                  ) : (
+                    <span className="font-mono text-[13px]">{v?.code}</span>
+                  )}
                 </td>
                 <td>{rupiah(o.sell_price)}</td>
                 <td className="font-semibold">{rupiah(o.net_profit)}</td>

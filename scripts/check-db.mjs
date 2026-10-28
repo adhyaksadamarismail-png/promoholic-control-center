@@ -27,6 +27,16 @@ create table auth.sessions (id uuid primary key default gen_random_uuid(), user_
 create function auth.uid() returns uuid language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''),
                   (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid $$;
+-- Tiruan minimal Supabase Storage (bucket & objek; foldername seperti aslinya).
+create schema storage;
+create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets,
+  name text, owner uuid, owner_id text, metadata jsonb, unique (bucket_id, name));
+alter table storage.objects enable row level security;
+create function storage.foldername(name text) returns text[] language sql immutable as $$
+  select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
+grant usage on schema storage to authenticated, service_role;
+grant select, insert on storage.objects to authenticated;
 grant usage on schema public, auth, extensions to anon, authenticated, service_role;
 grant execute on function auth.uid() to anon, authenticated;
 -- Meniru hak default Supabase pada skema public.
@@ -107,6 +117,57 @@ await expectFail('staf tidak menambah stok akun VM', () => as('rani', async () =
   return q(`select public.add_stock($1, '[{"type":"BP","qty":1}]', gen_random_uuid())`, [a[0].id])
 }), 'khusus owner')
 
+console.log('\nID akun fleksibel & restock Baperan terpisah')
+await as('rani', async () => {
+  await expectOk('ID 6 digit tanpa prefix diterima (195678)', () => q(`select public.panel_add_account('KK','195678',null,null,'{}',gen_random_uuid())`))
+  await expectOk('ID 7 digit dengan leading zero diterima (0123456)', () => q(`select public.panel_add_account('KK','0123456',null,null,'{}',gen_random_uuid())`))
+  const a = await q(`select account_code from public.account_list where account_code in ('195678','0123456') order by 1`)
+  a.map((x) => x.account_code).join(',') === '0123456,195678' ? ok('ID disimpan sebagai teks, leading zero tetap') : bad('ID akun', JSON.stringify(a))
+  const v = await q(`select string_agg(code, ',' order by code) c from public.vouchers where code like 'V-KK195678-%'`)
+  v[0].c === 'V-KK195678-A,V-KK195678-B,V-KK195678-C' ? ok('voucher utama otomatis untuk ID baru: ' + v[0].c) : bad('voucher ID baru', v[0].c)
+})
+await expectFail('KK-195678 dianggap akun yang sama dengan 195678', () => as('rani', () => q(`select public.panel_add_account('KK','KK-195678',null,null,'{}',gen_random_uuid())`)), 'sudah terdaftar')
+await expectFail('ID terlalu pendek ditolak dengan pesan jelas', () => as('rani', () => q(`select public.panel_add_account('KK','12',null,null,'{}',gen_random_uuid())`)), 'tidak valid')
+await expectFail('karakter tidak valid ditolak', () => as('rani', () => q(`select public.panel_add_account('KK','19 56#78',null,null,'{}',gen_random_uuid())`)), 'tidak valid')
+const bpType = (await q(`select id from public.voucher_types where brand_id = 'KK' and code = 'BP'`))[0].id
+const mainType = (await q(`select id from public.voucher_types where brand_id = 'KK' and code = 'A'`))[0].id
+let lotCode
+await as('rani', async () => {
+  const before = await q(`select count(*)::int n from public.account_list`)
+  const r = await expectOk('restock Baperan saja (10 voucher, modal belum diisi)', () => q(`select public.restock_extra_only($1, 10, null, null, 'Beli dari reseller A', current_date, gen_random_uuid()) c`, [bpType]))
+  lotCode = r?.[0].c
+  const after = await q(`select count(*)::int n from public.account_list`)
+  after[0].n === before[0].n ? ok('tidak membuat akun KopKen baru') : bad('akun bertambah')
+  const v = await q(`select count(*)::int n, count(*) filter (where allocated_cost is null)::int unknown, count(*) filter (where grp = 'main')::int main
+                     from public.vouchers v join public.restocks r on r.id = v.restock_id where r.code = $1`, [lotCode])
+  v[0].n === 10 && v[0].unknown === 10 && v[0].main === 0 ? ok('10 Baperan individual, modal "belum diisi" (bukan Rp0), tanpa voucher utama') : bad('lot Baperan', JSON.stringify(v[0]))
+})
+await expectFail('restock terpisah tidak boleh untuk voucher utama', () => as('rani', () => q(`select public.restock_extra_only($1, 1, null, 0, 'uji', current_date, gen_random_uuid())`, [mainType])), 'voucher tambahan')
+await expectFail('sumber pembelian wajib diisi', () => as('rani', () => q(`select public.restock_extra_only($1, 1, null, 0, '', current_date, gen_random_uuid())`, [bpType])), 'sumber')
+await expectFail('staf tanpa izin tidak bisa restock Baperan', () => as('dimas', () => q(`select public.restock_extra_only($1, 1, null, 0, 'uji', current_date, gen_random_uuid())`, [bpType])), 'izin')
+await expectFail('staf tidak bisa restock Baperan ke akun VM', () => as('rani', async () => {
+  const a = await q(`select id from public.account_list where account_code = 'KK-0192'`)
+  return q(`select public.restock_extra_only($1, 1, $2, 0, 'uji', current_date, gen_random_uuid())`, [bpType, a[0].id])
+}), 'khusus owner')
+await as('rani', async () => {
+  const v = await q(`select v.id from public.vouchers v join public.restocks r on r.id = v.restock_id where r.code = $1 order by v.code limit 1`, [lotCode])
+  const c = await q(`select public.record_order($1,'Lot','081234567890',null,30000,25000,0,null,null,true,gen_random_uuid()) c`, [v[0].id])
+  const o = await q(`select account_id, allocated_cost, review_reasons from public.orders where code = $1`, [c[0].c])
+  o[0].account_id === null && Number(o[0].allocated_cost) === 0 && o[0].review_reasons.includes('Modal voucher belum diisi')
+    ? ok('order dari Baperan lepas: tanpa akun, modal Rp0 sementara & ditandai tinjau') : bad('order lot', JSON.stringify(o[0]))
+})
+await expectFail('staf tidak bisa mengisi modal restock', () => as('rani', async () => {
+  const r = await q(`select id from public.restocks where code = $1`, [lotCode]); return q(`select public.set_restock_unit_cost($1, 2000)`, [r[0].id])
+}), 'khusus owner')
+await as('owner', async () => {
+  const r = await q(`select id from public.restocks where code = $1`, [lotCode])
+  const n = await expectOk('owner mengisi modal Rp2.000 per voucher', () => q(`select public.set_restock_unit_cost($1, 2000) n`, [r[0].id]))
+  n?.[0].n === 10 ? ok('modal tercatat di 10 voucher (termasuk yang sudah terpakai)') : bad('isi modal', JSON.stringify(n))
+  const o = await q(`select allocated_cost from public.orders where customer_name = 'Lot'`)
+  Number(o[0].allocated_cost) === 0 ? ok('order lama tidak dihitung ulang (snapshot tetap)') : bad('snapshot order berubah')
+  await expectFail('modal yang sudah diisi tidak bisa ditimpa', () => q(`select public.set_restock_unit_cost($1, 1)`, [r[0].id]), 'sudah diisi')
+})
+
 console.log('\nOrder & voucher')
 const vid = async (code) => (await q(`select id from public.vouchers where code = $1`, [code]))[0].id
 await expectFail('voucher yang sudah terpakai tidak bisa dipakai lagi', () => as('rani', async () =>
@@ -154,12 +215,50 @@ await as('owner', async () => {
 })
 await expectFail('staf lain tidak bisa absen di shift Rani', () => as('dimas', () => q(`select public.attendance_action($1, 'clock_in')`, [shiftId])))
 await expectFail('tidak bisa mulai istirahat sebelum absen masuk', () => as('rani', () => q(`select public.attendance_action($1, 'break_start')`, [shiftId])), 'Urutan')
-await expectFail('benefit belum bisa diklaim sebelum absen masuk', () => as('rani', () => q(`select public.claim_benefit($1)`, [shiftId])), 'setelah absen masuk')
+// Bukti receipt: objek di bucket privat, di folder <admin>/<shift>/ milik pengaju.
+const receipt = (who, n) => `${ids[who]}/${shiftId}/bukti-${n}.jpg`
+const putReceipt = (who, n) => as(who, () => q(`insert into storage.objects (bucket_id, name, owner) values ('benefit-receipts', $1, auth.uid())`, [receipt(who, n)]))
+await expectFail('benefit belum bisa diajukan sebelum absen masuk', () => as('rani', async () => {
+  await putReceipt('rani', 0); return q(`select public.submit_benefit_claim($1, 'regular', $2)`, [shiftId, receipt('rani', 0)])
+}), 'setelah absen masuk')
+await expectFail('klaim lama tanpa ukuran & bukti tidak bisa dipakai', () => as('rani', () => q(`select public.claim_benefit($1)`, [shiftId])))
+let claimId
 await as('rani', async () => {
   await expectOk('absen masuk (waktu server)', () => q(`select public.attendance_action($1, 'clock_in')`, [shiftId]))
-  await expectOk('klaim benefit tanpa memilih petugas', () => q(`select public.claim_benefit($1)`, [shiftId]))
+  await expectFail('ukuran cup wajib dipilih', () => q(`select public.submit_benefit_claim($1, null, $2)`, [shiftId, receipt('rani', 0)]), 'ukuran cup')
+  await expectFail('bukti receipt wajib ada di storage', () => q(`select public.submit_benefit_claim($1, 'large', $2)`, [shiftId, receipt('rani', 9)]), 'receipt')
+  const c = await expectOk('ajukan pengambilan (Large + bukti) tanpa memilih petugas', () => q(`select public.submit_benefit_claim($1, 'large', $2) id`, [shiftId, receipt('rani', 0)]))
+  claimId = c?.[0].id
+  const st = await q(`select status, admin_id from public.benefit_claims where id = $1`, [claimId])
+  st[0].status === 'pending' && st[0].admin_id === ids.rani ? ok('status Menunggu Verifikasi, identitas dari sesi') : bad('status klaim', JSON.stringify(st[0]))
+  await putReceipt('rani', 1)
+  await expectFail('pengajuan kedua saat masih menunggu ditolak', () => q(`select public.submit_benefit_claim($1, 'regular', $2)`, [shiftId, receipt('rani', 1)]), 'sudah diajukan')
 })
-await expectFail('klaim benefit kedua ditolak database', () => as('rani', () => q(`select public.claim_benefit($1)`, [shiftId])), 'sudah diklaim')
+await expectFail('bukti di folder admin lain ditolak', () => as('dimas', async () => {
+  await putReceipt('dimas', 2); return q(`select public.submit_benefit_claim($1, 'regular', $2)`, [shiftId, receipt('dimas', 2)])
+}), 'Shift tidak ditemukan')
+await expectFail('staf tidak bisa memverifikasi klaim', () => as('rani', () => q(`select public.verify_benefit_claim($1, true, null)`, [claimId])), 'khusus owner')
+await as('owner', async () => {
+  await expectFail('owner wajib membuka bukti sebelum menyetujui', () => q(`select public.verify_benefit_claim($1, true, null)`, [claimId]), 'Buka dan periksa')
+  await expectFail('penolakan wajib beralasan', () => q(`select public.verify_benefit_claim($1, false, '')`, [claimId]), 'Alasan')
+  await expectOk('owner menolak dengan alasan', () => q(`select public.verify_benefit_claim($1, false, 'Struk tidak terbaca')`, [claimId]))
+  await expectFail('keputusan ganda ditolak', () => q(`select public.verify_benefit_claim($1, false, 'lagi')`, [claimId]), 'sudah diputuskan')
+})
+await as('rani', async () => {
+  const c = await expectOk('setelah ditolak, admin mengajukan ulang (baris baru tercatat)', () => q(`select public.submit_benefit_claim($1, 'regular', $2) id`, [shiftId, receipt('rani', 1)]))
+  claimId = c?.[0].id
+})
+await as('owner', async () => {
+  await q(`select public.mark_benefit_receipt_viewed($1)`, [claimId])
+  await expectOk('owner menyetujui setelah membuka bukti', () => q(`select public.verify_benefit_claim($1, true, null)`, [claimId]))
+  const n = await q(`select count(*) filter (where status = 'rejected')::int rej, count(*) filter (where status = 'verified')::int ver from public.benefit_claims where shift_id = $1`, [shiftId])
+  n[0].rej === 1 && n[0].ver === 1 ? ok('klaim ditolak tetap tersimpan; satu klaim terverifikasi') : bad('histori klaim', JSON.stringify(n[0]))
+  const a = await q(`select count(*)::int n from public.audit_log where entity = 'benefit_claims'`)
+  a[0].n >= 4 ? ok('setiap perubahan status klaim tercatat di audit log') : bad('audit klaim', a[0].n)
+})
+await expectFail('pengajuan baru setelah terverifikasi ditolak', () => as('rani', async () => {
+  await putReceipt('rani', 3); return q(`select public.submit_benefit_claim($1, 'large', $2)`, [shiftId, receipt('rani', 3)])
+}), 'sudah diajukan')
 await expectFail('absen masuk kedua ditolak', () => as('rani', () => q(`select public.attendance_action($1, 'clock_in')`, [shiftId])), 'Urutan')
 await as('rani', async () => {
   await q(`select public.attendance_action($1, 'break_start')`, [shiftId])

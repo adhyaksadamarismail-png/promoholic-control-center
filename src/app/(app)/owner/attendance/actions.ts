@@ -192,3 +192,14 @@ export async function resetPassword(_: ActionResult | null, fd: FormData): Promi
   if (!r.ok) return r
   return { ok: true, message: `Password ${target.username} direset. Password sementara (tampil sekali): ${password}` }
 }
+
+export async function verifyBenefit(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const id = uuid.safeParse(str(fd, 'claim'))
+  if (!id.success) return { ok: false, message: 'Permintaan tidak valid.' }
+  const approve = str(fd, 'decision') === 'approve'
+  const note = str(fd, 'note')
+  if (!approve && note.length < 3) return { ok: false, message: 'Tulis alasan penolakan.' }
+  // Server memastikan owner, status masih menunggu (dikunci), dan bukti sudah dibuka sebelum disetujui.
+  return callRpc('verify_benefit_claim', { p_claim: id.data, p_approve: approve, p_note: note || null },
+    approve ? 'Klaim terverifikasi: benefit ditandai sudah diambil.' : 'Klaim ditolak. Admin dapat melihat alasan dan mengajukan ulang.', P)
+}

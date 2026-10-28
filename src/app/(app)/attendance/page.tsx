@@ -18,11 +18,28 @@ import {
   type AttendanceEvent,
   type AttendanceKind,
 } from '@/lib/attendance'
-import { attendanceAction, claimBenefit, requestAttendanceFix, requestBenefitFix } from './actions'
+import { attendanceAction, requestAttendanceFix, requestBenefitFix } from './actions'
+import { BenefitForm } from './benefit-form'
 
 export const dynamic = 'force-dynamic'
 
-type Claim = { id: string; claimed_at: string; voided_at: string | null }
+type Claim = {
+  id: string
+  claimed_at: string
+  voided_at: string | null
+  status: 'pending' | 'verified' | 'rejected'
+  cup_size: string | null
+  receipt_path: string | null
+  review_note: string | null
+  verified_at: string | null
+}
+const CUP: Record<string, string> = { regular: 'Regular', large: 'Large' }
+const CLAIM_STATUS = {
+  none: { label: 'Belum diajukan', tone: 'neutral' as const },
+  pending: { label: 'Menunggu Verifikasi', tone: 'warning' as const },
+  verified: { label: 'Terverifikasi · sudah diambil', tone: 'success' as const },
+  rejected: { label: 'Ditolak', tone: 'danger' as const },
+}
 type Shift = {
   id: string
   code: string
@@ -56,7 +73,7 @@ export default async function AttendancePage() {
     supabase
       .from('shifts')
       .select(
-        'id, code, kind, shift_date, planned_start, planned_end, status, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason), benefit_entitlements(id, benefit_claims(id, claimed_at, voided_at)), shift_earnings(net_minutes, base_allowance, bonus, status)',
+        'id, code, kind, shift_date, planned_start, planned_end, status, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason), benefit_entitlements(id, benefit_claims(id, claimed_at, voided_at, status, cup_size, receipt_path, review_note, verified_at)), shift_earnings(net_minutes, base_allowance, bonus, status)',
       )
       .eq('admin_id', me)
       .gte('shift_date', addDays(week, -14))
@@ -110,8 +127,11 @@ export default async function AttendancePage() {
         const net = netMinutes(eff, now)
         const brk = breakMinutes(eff, now)
         const est = s.kind === 'regular' ? estimateAllowance(net, allowance) : estimateBonus(net, bonus)
-        const claims = (s.benefit_entitlements?.benefit_claims ?? []).filter((c) => !c.voided_at)
-        const claim = claims[0]
+        // Klaim terbaru yang belum dibatalkan; "aktif" = menunggu verifikasi atau terverifikasi.
+        const claims = (s.benefit_entitlements?.benefit_claims ?? []).filter((c) => !c.voided_at).sort((a, b) => b.claimed_at.localeCompare(a.claimed_at))
+        const active = claims.find((c) => c.status === 'pending' || c.status === 'verified')
+        const shown = active ?? claims[0]
+        const claimState = CLAIM_STATUS[active?.status ?? (shown?.status === 'rejected' ? 'rejected' : 'none')]
         const hasIn = !!firstOf(eff, 'clock_in')
         const opensAt = Date.parse(s.planned_start) - 2 * 3600_000
         const target = allowance ? Number(allowance.target_hours) * 60 : 720
@@ -196,53 +216,59 @@ export default async function AttendancePage() {
                 </Note>
               </Card>
 
-              <Card title="Benefit KopKen shift ini" aside={<Pill tone={claim ? 'success' : 'neutral'}>{claim ? 'Sudah diambil' : 'Belum diambil'}</Pill>}>
+              <Card title="Benefit KopKen shift ini" aside={<Pill tone={claimState.tone}>{claimState.label}</Pill>}>
                 <div className="flex justify-between text-sm">
                   <span className="text-ink-500">Hak</span>
-                  <span className="font-semibold">1 cup · {s.code}</span>
+                  <span className="font-semibold">1 cup · {s.code} · {dateLabel(s.shift_date)}</span>
                 </div>
-                {claim ? (
+                {shown && (
                   <>
                     <div className="flex justify-between text-sm">
-                      <span className="text-ink-500">Diambil</span>
-                      <span className="font-semibold">{jktDateTime(claim.claimed_at)}</span>
+                      <span className="text-ink-500">Ukuran</span>
+                      <span className="font-semibold">{CUP[shown.cup_size ?? ''] ?? '—'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-ink-500">Dicatat oleh</span>
-                      <span className="font-semibold">{profile?.full_name} (sesi login)</span>
+                      <span className="text-ink-500">Diajukan</span>
+                      <span className="font-semibold">{jktDateTime(shown.claimed_at)} · {profile?.full_name}</span>
                     </div>
-                    {pendingTargets.has(claim.id) ? (
-                      <Note tone="warning">Pengajuan pembatalan klaim sedang menunggu owner.</Note>
-                    ) : (
-                      <details className="text-sm">
-                        <summary className="cursor-pointer font-semibold text-orange-700">Salah catat? Ajukan koreksi</summary>
-                        <ActionForm action={requestBenefitFix} className="mt-2 flex flex-col gap-2">
-                          <input type="hidden" name="claim" value={claim.id} />
-                          <label className={labelCls}>
-                            Alasan
-                            <input name="reason" required minLength={3} className={inputCls} placeholder="Contoh: tertekan tanpa sengaja" />
-                          </label>
-                          <SubmitButton variant="ghost">Kirim ke owner</SubmitButton>
-                        </ActionForm>
-                      </details>
+                    {shown.receipt_path && (
+                      <a href={`/api/benefit-receipt/${shown.id}`} target="_blank" rel="noopener" className="inline-flex min-h-8 items-center text-sm font-semibold text-orange-700">
+                        Lihat bukti receipt
+                      </a>
+                    )}
+                    {shown.status === 'rejected' && (
+                      <Note tone="warning">Ditolak owner: {shown.review_note}. Perbaiki lalu ajukan ulang; pengajuan lama tetap tercatat.</Note>
+                    )}
+                    {shown.status === 'verified' && shown.verified_at && (
+                      <span className="text-xs text-ink-500">Diverifikasi owner {jktDateTime(shown.verified_at)}{shown.review_note ? ` · ${shown.review_note}` : ''}</span>
                     )}
                   </>
+                )}
+                {active && (pendingTargets.has(active.id) ? (
+                  <Note tone="warning">Pengajuan pembatalan klaim sedang menunggu owner.</Note>
                 ) : (
-                  <ActionForm action={claimBenefit} className="flex flex-col gap-2">
-                    <input type="hidden" name="shift" value={s.id} />
-                    {hasIn ? (
-                      <SubmitButton variant="primary" className="min-h-12" pendingText="Mencatat…">
-                        Ambil 1 cup KopKen
-                      </SubmitButton>
-                    ) : (
-                      <button disabled className="min-h-12 rounded-lg bg-[#e7e2d8] text-sm font-semibold text-[#6e7689]">
-                        Bisa diambil setelah absen masuk
-                      </button>
-                    )}
-                  </ActionForm>
+                  <details className="text-sm">
+                    <summary className="cursor-pointer font-semibold text-orange-700">Salah catat? Ajukan pembatalan klaim</summary>
+                    <ActionForm action={requestBenefitFix} className="mt-2 flex flex-col gap-2">
+                      <input type="hidden" name="claim" value={active.id} />
+                      <label className={labelCls}>
+                        Alasan
+                        <input name="reason" required minLength={3} className={inputCls} placeholder="Contoh: salah pilih ukuran" />
+                      </label>
+                      <SubmitButton variant="ghost">Kirim ke owner</SubmitButton>
+                    </ActionForm>
+                  </details>
+                ))}
+                {!active && hasIn && s.status !== 'cancelled' && (
+                  <BenefitForm shiftId={s.id} shiftCode={s.code} shiftDate={dateLabel(s.shift_date)} resubmit={shown?.status === 'rejected'} />
+                )}
+                {!active && !hasIn && (
+                  <button disabled className="min-h-12 rounded-lg bg-[#e7e2d8] text-sm font-semibold text-[#6e7689]">
+                    Bisa diajukan setelah absen masuk
+                  </button>
                 )}
                 <span className="text-xs text-ink-500">
-                  Klaim tercatat atas nama akun yang sedang login. Klaim kedua untuk shift yang sama ditolak database.
+                  Pengajuan tercatat atas nama akun yang sedang login. Benefit dihitung sudah diambil setelah owner memverifikasi bukti.
                 </span>
               </Card>
             </div>
@@ -338,7 +364,8 @@ export default async function AttendancePage() {
                   {st && <Pill tone={st.tone}>{st.label}</Pill>}
                 </li>
               )
-            const claimed = (s.benefit_entitlements?.benefit_claims ?? []).some((c) => !c.voided_at)
+            const cl = (s.benefit_entitlements?.benefit_claims ?? []).filter((c) => !c.voided_at)
+            const claimed = cl.some((c) => c.status === 'verified') ? 'diambil' : cl.some((c) => c.status === 'pending') ? 'menunggu verifikasi' : cl.length ? 'ditolak' : 'tidak'
             const corrected = (s.attendance_events ?? []).some((x) => x.corrects_id)
             return (
               <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
@@ -348,7 +375,7 @@ export default async function AttendancePage() {
                   </span>
                   <span className="text-ink-500">
                     {jktTime(firstOf(eff, 'clock_in'))}–{jktTime(firstOf(eff, 'clock_out'))} · {minutesLabel(e?.net_minutes ?? null)} ·{' '}
-                    {e ? rupiah(s.kind === 'regular' ? e.base_allowance : e.bonus) : '—'} · KopKen: {claimed ? 'diambil' : 'tidak'}
+                    {e ? rupiah(s.kind === 'regular' ? e.base_allowance : e.bonus) : '—'} · KopKen: {claimed}
                     {corrected && ' · dikoreksi owner'}
                   </span>
                 </div>

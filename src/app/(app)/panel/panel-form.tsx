@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useState } from 'react'
-import { currentVersion, ruleLabel, type Rule } from '@/lib/inventory'
+import { accountCodeError, accountKey, currentVersion, normalizeAccountCode, ruleLabel, voucherBase, type Rule } from '@/lib/inventory'
 import { panelAddAccount, panelAddStock } from './actions'
 
 type Brand = { id: string; name: string }
@@ -17,8 +17,8 @@ const label = 'flex flex-col gap-1.5 text-sm font-semibold'
 const rp = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
 /** Sama dengan pola ID di _create_account / add_stock. ID final tetap dibuat server. */
-function voucherCode(account: string, t: VType, slot: number) {
-  return `V-${account.replace('-', '')}-${t.code}${t.auto_per_account === 1 ? '' : String(slot).padStart(2, '0')}`
+function voucherCode(brand: string, account: string, t: VType, slot: number) {
+  return `V-${voucherBase(brand, account)}-${t.code}${t.auto_per_account === 1 ? '' : String(slot).padStart(2, '0')}`
 }
 
 export function PanelForm(props: {
@@ -27,12 +27,12 @@ export function PanelForm(props: {
   types: VType[]
   versions: Version[]
   accounts: Account[]
-  existingCodes: string[]
+  existingKeys: string[] // `${brand}|${identitas akun tanpa prefix}`
   maxSlots: Record<string, number> // `${accountId}|${typeId}` → slot tertinggi
   costs: Cost[]
   creditPrice: number | null
 }) {
-  const { mode, brands, types, versions, accounts, existingCodes, maxSlots, costs, creditPrice } = props
+  const { mode, brands, types, versions, accounts, existingKeys, maxSlots, costs, creditPrice } = props
   const hydrated = useHydrated()
   const [state, action, pending] = useActionState(mode === 'new' ? panelAddAccount : panelAddStock, null)
   const [ack, setAck] = useState<typeof state>(null)
@@ -48,10 +48,11 @@ export function PanelForm(props: {
   const brandTypes = types.filter((t) => t.brand_id === brandId).sort((a, b) => a.sort_order - b.sort_order)
   const autoTypes = mode === 'new' ? brandTypes.filter((t) => t.auto_per_account) : []
   const manualTypes = brandTypes.filter((t) => t.auto_per_account === null)
-  const fullCode = code.toUpperCase()
-  const codeOk = /^[A-Z]{2}-\d{4}$/.test(fullCode) && fullCode.startsWith(brandId)
-  const duplicate = mode === 'new' && existingCodes.includes(fullCode)
-  const accCode = mode === 'new' ? (codeOk ? fullCode : `${brandId}-0000`) : account?.account_code ?? ''
+  const fullCode = normalizeAccountCode(code)
+  const codeErr = code ? accountCodeError(fullCode) : null
+  const codeOk = !!code && !codeErr
+  const duplicate = mode === 'new' && codeOk && existingKeys.includes(`${brandId}|${accountKey(brandId, fullCode)}`)
+  const accCode = mode === 'new' ? (codeOk ? fullCode : '195678') : account?.account_code ?? ''
 
   const preview = [
     ...autoTypes.flatMap((t) => Array.from({ length: t.auto_per_account ?? 0 }, (_, i) => ({ t, slot: i + 1 }))),
@@ -131,9 +132,11 @@ export function PanelForm(props: {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <label className={label}>
                 ID akun
-                <input name="code" required value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder={`${brandId}-0000`} className={`${input} font-mono`} autoComplete="off" />
-                <span className={`text-xs font-normal ${duplicate || (code && !codeOk) ? 'text-danger-700' : 'text-ink-500'}`}>
-                  {duplicate ? 'ID sudah terdaftar. Gunakan "Tambah voucher ke akun yang ada".' : code && !codeOk ? `Format ${brandId}-0000` : 'Unik per brand, dicek ulang server.'}
+                <input name="code" required maxLength={32} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="mis. 195678" className={`${input} font-mono`} autoComplete="off" />
+                <span className={`text-xs font-normal ${duplicate || codeErr ? 'text-danger-700' : 'text-ink-500'}`}>
+                  {duplicate
+                    ? 'ID sudah terdaftar di brand ini. Gunakan "Tambah voucher ke akun yang ada".'
+                    : codeErr ?? `Boleh 195678 atau ${brandId}-195678 (dianggap sama). Dicek ulang server.`}
                 </span>
               </label>
               <label className={label}>
@@ -218,7 +221,7 @@ export function PanelForm(props: {
         <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
           {preview.map((p) => (
             <li key={`${p.t.id}-${p.slot}`} className="flex justify-between gap-2 border-b border-navy-700 py-1">
-              <span className="font-mono text-xs">{voucherCode(accCode, p.t, p.slot)}</span>
+              <span className="font-mono text-xs">{voucherCode(brandId, accCode, p.t, p.slot)}</span>
               <span className="text-xs text-[#c5cbd9]">{p.t.grp === 'main' ? 'utama' : 'tambahan'}</span>
             </li>
           ))}

@@ -89,3 +89,25 @@ export function accountState(needsReview: boolean, statuses: VoucherStatus[]): A
   if (!avail) return 'empty'
   return avail === statuses.length ? 'complete' : 'partial'
 }
+
+/** Rapikan ID akun: huruf besar, tanpa spasi. Tetap teks agar leading zero aman. */
+export function normalizeAccountCode(v: string) {
+  return v.replace(/\s/g, '').toUpperCase()
+}
+
+/** Sama dengan validasi di database (_check_account_code). */
+export function accountCodeError(code: string): string | null {
+  if (code.length < 3 || code.length > 32) return 'ID akun 3–32 karakter, mis. 195678 atau KK-195678.'
+  if (!/^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(code)) return 'ID akun hanya boleh huruf dan angka; tanda hubung hanya di tengah (mis. KK-195678).'
+  return null
+}
+
+/** Identitas akun tanpa prefix brand: "KK-195678" dan "195678" adalah akun yang sama di brand KK. */
+export function accountKey(brand: string, code: string) {
+  return code.startsWith(brand + '-') ? code.slice(brand.length + 1) : code
+}
+
+/** Basis ID voucher, sama dengan _voucher_base di database. */
+export function voucherBase(brand: string, code: string) {
+  return brand + accountKey(brand, code).replace(/[^A-Z0-9]/g, '')
+}

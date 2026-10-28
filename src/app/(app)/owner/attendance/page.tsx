@@ -16,7 +16,7 @@ const TABS = [
   { key: 'staf', label: 'Akun staf' },
 ]
 
-export default async function OwnerAttendancePage({ searchParams }: { searchParams: Promise<{ tab?: string; week?: string }> }) {
+export default async function OwnerAttendancePage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const supabase = await requireOwnerPage()
   const sp = await searchParams
   const tab = TABS.some((t) => t.key === sp.tab) ? sp.tab! : 'absensi'
@@ -25,19 +25,19 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
 
   const [{ data: profiles }, { data: shifts }, { count: pendingEarnings }, { count: pendingApprovals }] = await Promise.all([
     supabase.from('profiles').select('id, username, full_name, role, is_active, can_restock_panel, must_change_password').order('role').order('username'),
-    supabase.from('shifts').select('status, needs_review, benefit_entitlements(benefit_claims(voided_at))').gte('shift_date', week).lte('shift_date', end),
+    supabase.from('shifts').select('status, needs_review, benefit_entitlements(benefit_claims(voided_at, status))').gte('shift_date', week).lte('shift_date', end),
     supabase.from('shift_earnings').select('id, shifts!inner(shift_date)', { count: 'exact', head: true }).eq('status', 'pending').gte('shifts.shift_date', week).lte('shifts.shift_date', end),
     supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
   ])
   const list = shifts ?? []
-  type Ent = { benefit_claims: { voided_at: string | null }[] }
+  type Ent = { benefit_claims: { voided_at: string | null; status: string }[] }
   const claimed = list.filter((s) => {
     const e = s.benefit_entitlements as unknown as Ent | Ent[] | null
-    return (Array.isArray(e) ? e : e ? [e] : []).some((x) => x.benefit_claims?.some((c) => !c.voided_at))
+    return (Array.isArray(e) ? e : e ? [e] : []).some((x) => x.benefit_claims?.some((c) => !c.voided_at && c.status === 'verified'))
   }).length
 
   const href = (t: string, w = week) => `/owner/attendance?tab=${t}&week=${w}`
-  const props = { supabase, week, profiles: (profiles ?? []) as Profile[] }
+  const props = { supabase, week, profiles: (profiles ?? []) as Profile[], sp }
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
@@ -57,7 +57,7 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
         <Stat label="Shift minggu ini" value={list.length} sub={`${list.filter((s) => s.status === 'completed').length} selesai`} />
         <Stat label="Perlu diperiksa" value={list.filter((s) => s.needs_review || s.status === 'incomplete').length} sub="ditandai sistem" />
         <Stat label="Menunggu persetujuan" value={pendingEarnings ?? 0} sub="uang saku / bonus" />
-        <Stat label="Benefit diambil" value={`${claimed} / ${list.length}`} sub="1 cup per shift" />
+        <Stat label="Benefit terverifikasi" value={`${claimed} / ${list.length}`} sub="1 cup per shift" />
         <Stat label="Pengajuan koreksi" value={pendingApprovals ?? 0} sub={<Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link>} />
       </div>
 

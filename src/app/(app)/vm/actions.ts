@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { callRpc, int, str, type ActionResult } from '@/lib/rpc'
 import { isYmd } from '@/lib/format'
+import { accountCodeError, normalizeAccountCode } from '@/lib/inventory'
 
 // Semua fungsi VM memanggil require_owner() di database; staf ditolak walau memanggil action ini langsung.
 const PATHS = ['/vm', '/stock', '/accounts', '/orders/new']
@@ -18,12 +19,13 @@ export async function addDevice(_: ActionResult | null, fd: FormData): Promise<A
 
 export async function vmAddAccount(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const device = str(fd, 'device')
-  const code = str(fd, 'code').toUpperCase()
+  const code = normalizeAccountCode(str(fd, 'code'))
   const number = str(fd, 'number').replace(/[^\d]/g, '')
   const until = str(fd, 'active_until')
   const idem = uuid.safeParse(str(fd, 'idem'))
   if (!/^VD-\d{2,4}$/.test(device)) return { ok: false, message: 'Pilih device.' }
-  if (!/^[A-Z]{2}-\d{4}$/.test(code)) return { ok: false, message: 'Format ID akun: KK-0000.' }
+  const invalid = accountCodeError(code)
+  if (invalid) return { ok: false, message: invalid }
   if (!/^08\d{8,11}$/.test(number)) return { ok: false, message: 'Nomor akun harus diawali 08, 10–13 digit.' }
   if (until && !isYmd(until)) return { ok: false, message: 'Tanggal masa aktif tidak valid.' }
   if (!idem.success) return { ok: false, message: 'Muat ulang halaman lalu coba lagi.' }

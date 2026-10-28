@@ -66,7 +66,11 @@ export default async function VoucherHistoryPage({ searchParams }: { searchParam
               <Pill tone={TONE[r.reason] ?? 'neutral'}>{LEDGER_REASON[r.reason] ?? r.reason}</Pill>
               <span className="text-xs text-ink-500">{jktDateTime(r.at)}</span>
             </div>
-            <Link href={`/accounts/${r.accountId}`} className="inline-flex min-h-8 items-center font-mono text-[13px] font-semibold">{r.voucherCode}</Link>
+            {r.accountId ? (
+              <Link href={`/accounts/${r.accountId}`} className="inline-flex min-h-8 items-center font-mono text-[13px] font-semibold">{r.voucherCode}</Link>
+            ) : (
+              <span className="font-mono text-[13px] font-semibold">{r.voucherCode}</span>
+            )}
             <span className="text-xs text-ink-500">{r.accountCode} · {r.typeName}</span>
             {(r.customer || r.orderCode) && (
               <span className="text-xs">
@@ -90,7 +94,7 @@ export default async function VoucherHistoryPage({ searchParams }: { searchParam
             <tr key={r.id} className={r.cancelChain ? 'bg-warning-100/50 [&>td:first-child]:!bg-[#fdf3e3]' : ''}>
               <td className="whitespace-nowrap">{jktDateTime(r.at)}</td>
               <td><Pill tone={TONE[r.reason] ?? 'neutral'}>{LEDGER_REASON[r.reason] ?? r.reason}</Pill></td>
-              <td className="whitespace-nowrap font-mono text-[13px]"><Link href={`/accounts/${r.accountId}`}>{r.voucherCode}</Link></td>
+              <td className="whitespace-nowrap font-mono text-[13px]">{r.accountId ? <Link href={`/accounts/${r.accountId}`}>{r.voucherCode}</Link> : r.voucherCode}</td>
               <td><span className="font-mono text-[13px]">{r.accountCode}</span><div className="text-xs text-ink-500">{r.typeName}</div></td>
               <td>{r.customer ?? '—'}</td>
               <td className="whitespace-nowrap font-mono text-[13px]">{r.wa ?? '—'}</td>

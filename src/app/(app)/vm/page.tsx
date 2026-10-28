@@ -166,7 +166,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
               <ActionForm action={vmAddAccount} className="grid grid-cols-1 gap-3 sm:grid-cols-2" resultClassName="sm:col-span-2">
                 <input type="hidden" name="device" value={device.id} />
                 <input type="hidden" name="idem" value={randomUUID()} />
-                <label className={labelCls}>ID akun<input name="code" required pattern="KK-[0-9]{4}" placeholder="KK-0000" className={`${inputCls} font-mono`} autoComplete="off" /></label>
+                <label className={labelCls}>ID akun<input name="code" required minLength={3} maxLength={32} placeholder="mis. 195678" className={`${inputCls} font-mono uppercase`} autoComplete="off" /></label>
                 <label className={labelCls}>Nomor akun<input name="number" required inputMode="tel" placeholder="0857-xxxx-xxxx" className={inputCls} autoComplete="off" /></label>
                 <label className={labelCls}>Masa aktif (opsional)<input type="date" name="active_until" className={inputCls} /></label>
                 <label className={labelCls}>Voucher Baperan (opsional)<input type="number" name="qty_BP" min={0} max={20} defaultValue={0} className={inputCls} /></label>
@@ -180,7 +180,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
                 </div>
                 <div className="sm:col-span-2"><SubmitButton variant="accent">Simpan akun ke {device.name}</SubmitButton></div>
               </ActionForm>
-              <p className="text-xs text-ink-500">Email tidak diperlukan untuk akun VM. ID akun dan nomor akun unik; server menolak duplikat. Tanggal masuk dicatat otomatis.</p>
+              <p className="text-xs text-ink-500">Email tidak diperlukan untuk akun VM. ID akun boleh 195678 atau KK-195678 (dianggap sama); ID dan nomor akun unik, server menolak duplikat. Tanggal masuk dicatat otomatis.</p>
             </Card>
           )}
         </div>
