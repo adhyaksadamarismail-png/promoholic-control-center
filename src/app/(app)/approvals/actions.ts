@@ -9,5 +9,5 @@ export async function decide(_: ActionResult | null, fd: FormData): Promise<Acti
   const approve = str(fd, 'decision') === 'approve'
   // decide_approval memeriksa require_owner() dan menjalankan perubahan + audit dalam satu transaksi.
   return callRpc('decide_approval', { p_request: id.data, p_approve: approve, p_note: str(fd, 'note') || null },
-    approve ? 'Disetujui dan diterapkan.' : 'Ditolak. Data tidak berubah.', ['/approvals', '/owner/attendance', '/attendance'])
+    approve ? 'Disetujui dan diterapkan.' : 'Ditolak. Data tidak berubah.', ['/approvals', '/owner/attendance', '/attendance', '/stock', '/accounts'])
 }
