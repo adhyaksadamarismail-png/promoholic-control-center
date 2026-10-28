@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createSessionClient } from '@/lib/supabase/server'
 
 const STATUS: Record<string, string> = {
@@ -67,9 +68,11 @@ export default async function HomePage() {
         })}
       </section>
 
-      <p className="text-sm text-ink-500">
-        Fondasi aplikasi sudah aktif (login, sesi, peran). Halaman operasional dibangun bertahap mengikuti mockup yang sudah disetujui.
-      </p>
+      <div className="flex flex-wrap gap-2">
+        <Link href="/attendance" className="flex min-h-11 items-center rounded-lg bg-orange-500 px-4 text-sm font-semibold text-navy-900">Absensi & Benefit</Link>
+        <Link href="/orders/new" className="flex min-h-11 items-center rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white">Catat order</Link>
+        <Link href="/accounts" className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">Daftar akun</Link>
+      </div>
     </div>
   )
 }

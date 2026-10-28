@@ -3,8 +3,13 @@
 Dashboard internal operasional Promo.Holic: akun & voucher (VM dan Panel Admin), transaksi order, stok & restock,
 keuangan, absensi, uang saku, bonus shift tambahan, dan benefit KopKen.
 
-Tahap ini: **fondasi pengembangan lokal** — skema database, aturan akses, fungsi server, data dummy, login dengan CAPTCHA,
-dan kerangka aplikasi. Belum terhubung ke database produksi dan belum di-deploy.
+Tahap ini: **pengembangan lokal** — skema database, aturan akses, fungsi server, data dummy, login dengan CAPTCHA,
+modul Absensi & Benefit (staf + owner + persetujuan), dan modul Order & Akun (form transaksi, daftar & detail akun).
+Belum terhubung ke database produksi dan belum di-deploy.
+
+Halaman yang sudah aktif: `/attendance`, `/owner/attendance`, `/approvals`, `/orders/new`, `/accounts`, `/accounts/[id]`,
+`/accounts/export`, `/account/password`. Menu lain (Riwayat Voucher, Stok & Restock, Panel Admin, Keuangan, Virtual Machine,
+Konfigurasi Voucher) belum dibangun.
 
 ## Teknologi
 
@@ -57,11 +62,14 @@ supabase/migrations/
   …0004_rls.sql                  RLS + view tersamar untuk staf
   …0005_functions_inventory.sql  restock VM/Panel, tambah stok, order, draft, pembatalan, koreksi stok
   …0006_functions_attendance.sql shift, absen, earning, payroll, klaim benefit, persetujuan, akun staf
+  …0007_schedule_password.sql    perubahan jadwal berversi, penanda ganti password
 supabase/seed.sql                data dummy lokal
 scripts/check-db.mjs             pemeriksa PGlite
 src/app/login                    login + Turnstile
 src/app/api/auth                 route login (rate limit + CAPTCHA) & logout
-src/app/(app)                    kerangka aplikasi setelah login
+src/app/(app)                    halaman setelah login (attendance, owner/attendance, approvals, orders/new, accounts)
+src/app/account/password         ganti password wajib setelah reset owner
+src/lib                          format, pemanggil RPC, aturan tampilan absensi & voucher
 ```
 
 ## Prinsip keamanan
