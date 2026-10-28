@@ -67,11 +67,11 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs items={PERIODS.map((x) => ({ key: x.key, label: x.label, href: href(x.key, d) }))} active={p} />
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           <Link href={href(p, shiftPeriod(p, d, -1))} aria-label="Periode sebelumnya" className="flex size-11 items-center justify-center rounded-lg border border-[#dcd2bf] bg-white font-bold">←</Link>
-          <span className="min-w-44 text-center text-sm font-semibold">{periodLabel(p, d)}</span>
+          <span className="min-w-0 flex-1 text-center text-sm font-semibold sm:min-w-44 sm:flex-none">{periodLabel(p, d)}</span>
           <Link href={href(p, shiftPeriod(p, d, 1))} aria-label="Periode berikutnya" className="flex size-11 items-center justify-center rounded-lg border border-[#dcd2bf] bg-white font-bold">→</Link>
-          <Link href={href(p, today)} className="flex min-h-11 items-center px-2 text-sm font-semibold text-orange-700">Hari ini</Link>
+          <Link href={href(p, today)} className="flex min-h-11 items-center whitespace-nowrap px-2 text-sm font-semibold text-orange-700">Hari ini</Link>
         </div>
       </div>
 
@@ -83,7 +83,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         <Stat label="Perlu ditinjau" value={c.review} sub={c.review ? 'order dengan potongan manual / selisih' : 'tidak ada'} />
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card title="Laba bersih per periode" aside={<span className="text-xs text-ink-500">{fin.buckets.length} periode terakhir · arahkan ke batang untuk rincian</span>}>
           <div className="flex h-56 items-stretch gap-1.5 border-b border-cream-300 pt-6" role="img" aria-label="Grafik laba bersih per periode; rincian ada di tabel di bawahnya">
             {fin.buckets.map((b) => {
@@ -151,7 +151,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
 
       <Card title={`Alur persediaan akun & kredit · ${periodLabel(p, d)}`}>
         <p className="text-sm text-ink-500">Modal pembelian dicatat sebagai persediaan, lalu menjadi HPP hanya saat voucher terpakai.</p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
             ['Pembelian kredit / akun', fin.flow.purchased, 'dicatat manual di bawah'],
             ['Modal masuk ke voucher', fin.flow.inventoryIn, 'dari restock periode ini'],
@@ -168,9 +168,9 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         </div>
       </Card>
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card title="Biaya operasional">
-          <ActionForm action={addExpense} className="grid gap-2 sm:grid-cols-2" resultClassName="sm:col-span-2">
+          <ActionForm action={addExpense} className="grid grid-cols-1 gap-2 sm:grid-cols-2" resultClassName="sm:col-span-2">
             <label className={labelCls}>Tanggal<input type="date" name="date" defaultValue={today} required className={inputCls} /></label>
             <label className={labelCls}>Kategori<input name="category" required list="expense-cat" placeholder="mis. Internet" className={inputCls} /></label>
             <datalist id="expense-cat"><option value="Internet" /><option value="Pulsa & paket" /><option value="Perangkat" /><option value="Iklan" /><option value="Lain-lain" /></datalist>
@@ -187,7 +187,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         </Card>
 
         <Card title="Pembelian persediaan (kredit / akun)">
-          <ActionForm action={addPurchase} className="grid gap-2 sm:grid-cols-2" resultClassName="sm:col-span-2">
+          <ActionForm action={addPurchase} className="grid grid-cols-1 gap-2 sm:grid-cols-2" resultClassName="sm:col-span-2">
             <label className={labelCls}>Tanggal<input type="date" name="date" defaultValue={today} required className={inputCls} /></label>
             <label className={labelCls}>Jumlah kredit (opsional)<input name="credits" inputMode="decimal" className={inputCls} /></label>
             <label className={labelCls}>Nominal (Rp)<input name="amount" inputMode="numeric" required className={inputCls} /></label>
@@ -204,7 +204,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         </Card>
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card title="Harga modal">
           <p className="text-sm">
             1 kredit = <b>{creditNow ? rupiah(creditNow.rp_per_credit) : 'belum dikonfigurasi'}</b>

@@ -42,14 +42,14 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
       <PageHeader eyebrow={`Hanya owner · minggu ${dateLabel(week)} – ${dateLabel(end)}`} title="Absensi, Uang Saku & Staf">
-        <Link href={href(tab, addDays(week, -7))} className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-3.5 text-sm font-semibold">
-          ← Minggu lalu
+        <Link href={href(tab, addDays(week, -7))} aria-label="Minggu lalu" className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-3.5 text-sm font-semibold">
+          ←<span className="hidden sm:inline">&nbsp;Minggu lalu</span>
         </Link>
         <Link href={href(tab, weekStart(jktDate()))} className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-3.5 text-sm font-semibold">
           Minggu ini
         </Link>
-        <Link href={href(tab, addDays(week, 7))} className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-3.5 text-sm font-semibold">
-          Minggu depan →
+        <Link href={href(tab, addDays(week, 7))} aria-label="Minggu depan" className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-3.5 text-sm font-semibold">
+          <span className="hidden sm:inline">Minggu depan&nbsp;</span>→
         </Link>
       </PageHeader>
 

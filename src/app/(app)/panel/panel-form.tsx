@@ -100,7 +100,7 @@ export function PanelForm(props: {
   return (
     <form
       key={formKey}
-      className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]"
+      className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]"
       onSubmit={(e) => {
         e.preventDefault()
         const fd = new FormData(e.currentTarget)
@@ -128,7 +128,7 @@ export function PanelForm(props: {
                 ))}
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <label className={label}>
                 ID akun
                 <input name="code" required value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder={`${brandId}-0000`} className={`${input} font-mono`} autoComplete="off" />

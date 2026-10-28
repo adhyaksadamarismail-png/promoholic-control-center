@@ -14,7 +14,7 @@ export function PageHeader({ eyebrow, title, children }: { eyebrow?: string; tit
 
 export function Card({ title, children, className = '', aside }: { title?: string; children: React.ReactNode; className?: string; aside?: React.ReactNode }) {
   return (
-    <section className={`flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 ${className}`}>
+    <section className={`flex min-w-0 flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 ${className}`}>
       {(title || aside) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           {title && <h2 className="font-display text-base font-semibold">{title}</h2>}
@@ -67,20 +67,26 @@ export function Tabs({ items, active }: { items: { key: string; label: string; h
 
 export function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
   return (
-    <div className="flex min-w-[150px] flex-1 flex-col gap-1 rounded-xl border border-cream-300 bg-white p-4">
-      <span className="text-xs font-bold uppercase tracking-[0.06em] text-ink-500">{label}</span>
-      <span className="font-display text-xl font-bold">{value}</span>
+    <div className="flex min-w-[140px] flex-1 flex-col gap-0.5 rounded-xl border border-cream-300 bg-white p-3 sm:gap-1 sm:p-4">
+      <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-ink-500 sm:text-xs">{label}</span>
+      <span className="font-display text-lg font-bold sm:text-xl">{value}</span>
       {sub && <span className="text-xs text-ink-500">{sub}</span>}
     </div>
   )
 }
 
+// Kolom pertama menempel di kiri saat tabel digeser, agar tiap baris tetap terbaca di HP.
+const STICKY_FIRST =
+  '[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-[1] [&_td:first-child]:bg-white [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-[1] [&_th:first-child]:bg-white'
+
 /** Tabel dengan gulir horizontal di layar sempit. */
 export function Table({ head, children, empty }: { head: string[]; children: React.ReactNode; empty?: string }) {
   const hasRows = Array.isArray(children) ? children.length > 0 : !!children
   return (
-    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-      <table className="w-full min-w-[640px] border-collapse text-sm">
+    <div className="flex flex-col gap-1">
+      {hasRows && head.length > 4 && <span className="text-xs text-ink-500 sm:hidden">Geser tabel ke samping untuk kolom lain →</span>}
+      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <table className={`w-full min-w-[640px] border-collapse text-sm ${STICKY_FIRST}`}>
         <thead>
           <tr className="border-b border-cream-300 text-left text-xs font-bold uppercase tracking-[0.05em] text-ink-500">
             {head.map((h) => (
@@ -90,7 +96,7 @@ export function Table({ head, children, empty }: { head: string[]; children: Rea
             ))}
           </tr>
         </thead>
-        <tbody className="[&>tr]:border-b [&>tr]:border-[#f1eadc] [&_td]:px-2.5 [&_td]:py-2.5 [&_td]:align-top">
+        <tbody className="[&>tr]:border-b [&>tr]:border-[#f1eadc] [&_td]:px-2.5 [&_td]:py-2.5 [&_td]:align-top [&_td>a]:inline-flex [&_td>a]:min-h-8 [&_td>a]:items-center">
           {hasRows ? (
             children
           ) : (
@@ -101,7 +107,8 @@ export function Table({ head, children, empty }: { head: string[]; children: Rea
             </tr>
           )}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
   )
 }

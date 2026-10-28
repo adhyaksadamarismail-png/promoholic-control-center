@@ -54,10 +54,10 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         <Stat label="Koreksi menunggu" value={pendingAdj?.length ?? 0} />
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Link href={href(tab, '')} className={`flex min-h-10 items-center rounded-full px-3.5 text-sm font-semibold ${!brand ? 'bg-navy-900 text-white' : 'border border-[#dcd2bf] bg-white'}`}>Semua brand</Link>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 sm:pb-0">
+        <Link href={href(tab, '')} className={`flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-sm font-semibold ${!brand ? 'bg-navy-900 text-white' : 'border border-[#dcd2bf] bg-white'}`}>Semua brand</Link>
         {brands.map((b) => (
-          <Link key={b.id} href={href(tab, b.id)} className={`flex min-h-10 items-center rounded-full px-3.5 text-sm font-semibold ${brand === b.id ? 'bg-navy-900 text-white' : 'border border-[#dcd2bf] bg-white'}`}>
+          <Link key={b.id} href={href(tab, b.id)} className={`flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-sm font-semibold ${brand === b.id ? 'bg-navy-900 text-white' : 'border border-[#dcd2bf] bg-white'}`}>
             {b.name}
           </Link>
         ))}

@@ -373,7 +373,7 @@ export async function ScheduleTab({ supabase, profiles }: Props) {
       </Card>
 
       <Card title="Ubah jadwal reguler">
-        <ActionForm action={setSchedule} className="grid gap-3 sm:grid-cols-2">
+        <ActionForm action={setSchedule} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className={labelCls}>
             Staf
             <select name="admin" className={inputCls}>
@@ -443,7 +443,7 @@ export async function RulesTab({ supabase }: Props) {
   ])
   const a = allowance?.[0]
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Uang saku pokok (shift reguler)">
         {a ? (
           <>
@@ -470,7 +470,7 @@ export async function RulesTab({ supabase }: Props) {
             </li>
           ))}
         </ul>
-        <ActionForm action={addBonusRule} className="grid gap-3 sm:grid-cols-2">
+        <ActionForm action={addBonusRule} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className={`${labelCls} sm:col-span-2`}>
             Metode
             <select name="method" className={inputCls}>
@@ -540,7 +540,7 @@ export async function StaffTab({ profiles }: Props) {
       </Card>
 
       <Card title="+ Tambah staf">
-        <ActionForm action={createStaff} className="grid gap-3 sm:grid-cols-3" resultClassName="sm:col-span-3 break-all">
+        <ActionForm action={createStaff} className="grid grid-cols-1 gap-3 sm:grid-cols-3" resultClassName="sm:col-span-3 break-all">
           <label className={labelCls}>Username<input name="username" required pattern="[a-z0-9_.]{3,32}" autoCapitalize="none" className={inputCls} /></label>
           <label className={labelCls}>Nama<input name="full_name" required className={inputCls} /></label>
           <div className="flex items-end"><SubmitButton variant="accent">Buat akun staf</SubmitButton></div>

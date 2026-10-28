@@ -179,7 +179,7 @@ export default async function AttendancePage() {
               </span>
             </section>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Card title={s.kind === 'regular' ? 'Estimasi uang saku' : 'Estimasi bonus shift tambahan'}>
                 <span className="font-display text-2xl font-bold">{est === null ? 'Belum dikonfigurasi' : rupiah(est)}</span>
                 <span className="text-sm text-ink-500">

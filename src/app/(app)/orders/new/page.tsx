@@ -29,6 +29,37 @@ export default async function NewOrderPage() {
     supabase.from('approval_requests').select('target_id').eq('kind', 'order_cancel').eq('status', 'pending'),
   ])
   const pendingCancel = new Set((pending ?? []).map((p) => p.target_id))
+  const list = (orders ?? []).map((o) => ({
+    o,
+    v: (Array.isArray(o.vouchers) ? o.vouchers[0] : o.vouchers) as { code: string } | null,
+    st: ORDER_STATUS[o.status],
+  }))
+  const actions = (o: { id: string; status: string }) => (
+    <>
+      {o.status === 'draft' && (
+        <div className="flex gap-1.5">
+          <ActionForm action={confirmDraft}>
+            <input type="hidden" name="order" value={o.id} />
+            <SubmitButton variant="success" className="min-h-10 px-3">Konfirmasi</SubmitButton>
+          </ActionForm>
+          <ActionForm action={cancelDraft} confirm="Batalkan draft ini? Voucher kembali tersedia.">
+            <input type="hidden" name="order" value={o.id} />
+            <SubmitButton variant="danger" className="min-h-10 px-3">Batalkan</SubmitButton>
+          </ActionForm>
+        </div>
+      )}
+      {o.status === 'confirmed' && !pendingCancel.has(o.id) && (
+        <details className="text-sm">
+          <summary className="inline-flex min-h-8 cursor-pointer items-center font-semibold text-orange-700">Ajukan batal</summary>
+          <ActionForm action={requestCancel} className="mt-2 flex w-full max-w-60 flex-col gap-1.5">
+            <input type="hidden" name="order" value={o.id} />
+            <input name="reason" required minLength={3} placeholder="Alasan pembatalan" className={inputCls} />
+            <SubmitButton variant="ghost" className="min-h-10">Kirim ke owner</SubmitButton>
+          </ActionForm>
+        </details>
+      )}
+    </>
+  )
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
@@ -36,14 +67,37 @@ export default async function NewOrderPage() {
       <OrderForm brands={brands ?? []} accounts={accounts ?? []} vouchers={vouchers ?? []} types={types ?? []} versions={versions ?? []} />
 
       <Card title="Order terakhir saya">
-        <Table head={['Waktu', 'ID order', 'Customer', 'Voucher', 'Harga jual', 'Laba bersih', 'Status', '']} empty="Belum ada order.">
-          {(orders ?? []).map((o) => {
-            const v = (Array.isArray(o.vouchers) ? o.vouchers[0] : o.vouchers) as { code: string } | null
-            const st = ORDER_STATUS[o.status]
-            return (
+        {/* HP: kartu per order; layar lebar: tabel. Aksi sama untuk keduanya. */}
+        <ul className="flex flex-col divide-y divide-[#f1eadc] md:hidden">
+          {list.map(({ o, v, st }) => (
+            <li key={o.id} className="flex flex-col gap-2 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-col">
+                  <span className="font-mono text-[13px] font-semibold">{o.code}</span>
+                  <span className="text-xs text-ink-500">{jktDateTime(o.created_at)} · {o.customer_name}</span>
+                </div>
+                <span className="text-right">
+                  <span className="block font-semibold">{rupiah(o.net_profit)}</span>
+                  <span className="text-xs text-ink-500">jual {rupiah(o.sell_price)}</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Pill tone={st.tone}>{st.label}</Pill>
+                {o.needs_review && <Pill tone="warning">Perlu tinjau owner</Pill>}
+                {pendingCancel.has(o.id) && <Pill tone="warning">Batal diajukan</Pill>}
+                <Link href={`/accounts/${o.account_id}`} className="ml-auto inline-flex min-h-8 items-center font-mono text-xs text-orange-700">{v?.code}</Link>
+              </div>
+              {actions(o)}
+            </li>
+          ))}
+          {!list.length && <li className="py-3 text-sm text-ink-500">Belum ada order.</li>}
+        </ul>
+        <div className="hidden md:block">
+          <Table head={['Waktu', 'ID order', 'Customer', 'Voucher', 'Harga jual', 'Laba bersih', 'Status', '']} empty="Belum ada order.">
+            {list.map(({ o, v, st }) => (
               <tr key={o.id}>
                 <td className="whitespace-nowrap">{jktDateTime(o.created_at)}</td>
-                <td className="font-mono text-[13px] font-semibold">{o.code}</td>
+                <td className="whitespace-nowrap font-mono text-[13px] font-semibold">{o.code}</td>
                 <td>{o.customer_name}</td>
                 <td>
                   <Link href={`/accounts/${o.account_id}`} className="font-mono text-[13px] text-orange-700">{v?.code}</Link>
@@ -57,34 +111,11 @@ export default async function NewOrderPage() {
                     {pendingCancel.has(o.id) && <Pill tone="warning">Batal diajukan</Pill>}
                   </div>
                 </td>
-                <td>
-                  {o.status === 'draft' && (
-                    <div className="flex gap-1.5">
-                      <ActionForm action={confirmDraft}>
-                        <input type="hidden" name="order" value={o.id} />
-                        <SubmitButton variant="success" className="min-h-9 px-3">Konfirmasi</SubmitButton>
-                      </ActionForm>
-                      <ActionForm action={cancelDraft} confirm="Batalkan draft ini? Voucher kembali tersedia.">
-                        <input type="hidden" name="order" value={o.id} />
-                        <SubmitButton variant="danger" className="min-h-9 px-3">Batalkan</SubmitButton>
-                      </ActionForm>
-                    </div>
-                  )}
-                  {o.status === 'confirmed' && !pendingCancel.has(o.id) && (
-                    <details className="text-sm">
-                      <summary className="cursor-pointer font-semibold text-orange-700">Ajukan batal</summary>
-                      <ActionForm action={requestCancel} className="mt-2 flex w-60 flex-col gap-1.5">
-                        <input type="hidden" name="order" value={o.id} />
-                        <input name="reason" required minLength={3} placeholder="Alasan pembatalan" className={inputCls} />
-                        <SubmitButton variant="ghost" className="min-h-9">Kirim ke owner</SubmitButton>
-                      </ActionForm>
-                    </details>
-                  )}
-                </td>
+                <td>{actions(o)}</td>
               </tr>
-            )
-          })}
-        </Table>
+            ))}
+          </Table>
+        </div>
         <p className="text-xs text-ink-500">
           Order terkonfirmasi tidak bisa dihapus. Pembatalan diajukan ke owner; setelah disetujui voucher kembali tersedia lewat entri stok balik.
         </p>

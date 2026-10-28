@@ -129,7 +129,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
   return (
     <form
       key={formKey}
-      className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]"
+      className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]"
       onSubmit={(e) => {
         e.preventDefault()
         const fd = new FormData(e.currentTarget)
@@ -182,7 +182,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
         </Step>
 
         <Step n={3} title="Customer & referensi">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className={label}>Nama customer<input name="customer_name" required className={input} autoComplete="off" /></label>
             <label className={label}>Nomor WhatsApp<input name="customer_wa" required inputMode="tel" placeholder="0812-3456-7890" className={input} autoComplete="off" /></label>
             <label className={label}>ID / referensi order<input name="ref" className={input} placeholder="Opsional" autoComplete="off" /></label>
@@ -207,7 +207,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
                 return (
                   <div key={g} className="flex flex-col gap-2">
                     <span className="text-xs font-bold uppercase tracking-[0.06em] text-ink-500">{g === 'main' ? 'Voucher utama' : 'Voucher tambahan'}</span>
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {list.map((v) => {
                         const ok = eligible(v)
                         const r = ruleFor(v)
@@ -242,7 +242,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
         </Step>
 
         <Step n={6} title="Potongan, harga jual & status">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className={label}>
               Potongan voucher
               {pv.manualNeeded ? (
@@ -281,6 +281,13 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
               ))}
             </div>
           </fieldset>
+          {/* HP: panel perhitungan ada di bawah form, jadi ringkasannya ditampilkan di sini sebelum menyimpan. */}
+          <div className="flex flex-col gap-1 rounded-xl bg-navy-900 p-3.5 text-sm text-white lg:hidden">
+            <div className="flex justify-between"><span className="text-[#c5cbd9]">Bayar ke merchant</span><b>{rp(after)}</b></div>
+            <div className="flex justify-between"><span className="text-[#c5cbd9]">HPP (merchant + modal)</span><b>{rp(hpp)}</b></div>
+            <div className="flex justify-between"><span className="font-semibold">Laba bersih</span><b className="font-display text-lg text-orange-500">{rp(net)}</b></div>
+            {reasons.length > 0 && <span className="text-xs font-semibold text-[#ffd8a8]">Order akan ditandai untuk ditinjau owner.</span>}
+          </div>
           {shown && !shown.ok && <p role="alert" className="rounded-lg bg-danger-100 px-3 py-2 text-sm text-[#7a1a12]">{shown.message}</p>}
           <div className="flex flex-wrap gap-2">
             <button

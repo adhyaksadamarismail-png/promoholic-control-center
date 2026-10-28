@@ -102,7 +102,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       {account.needs_review && <Note tone="warning">Perlu diperiksa: {account.review_note ?? 'ditandai owner'}</Note>}
 
       <Card title={`Voucher utama (${main.length})`} aside={<span className="text-sm text-ink-500">{mainAvail} dari {main.length} tersedia</span>}>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {main.map((v, i) => {
             const t = typeOf(v.voucher_type_id)
             const u = usageOf(v.id)

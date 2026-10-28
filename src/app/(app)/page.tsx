@@ -37,9 +37,6 @@ export default async function HomePage() {
           <span className="text-sm text-ink-500">{today}</span>
           <h1 className="font-display text-2xl font-bold">Halo, {profile?.full_name}</h1>
         </div>
-        <form action="/api/auth/logout" method="post" className="md:hidden">
-          <button className="min-h-11 rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">Keluar</button>
-        </form>
       </header>
 
       <section className="flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-5">

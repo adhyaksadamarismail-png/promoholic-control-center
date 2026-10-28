@@ -31,7 +31,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         </a>
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-5 md:overflow-visible md:px-0 md:pb-0">
         {brands.map((b) => {
           const vs = rows.filter((r) => r.brand_id === b.id).flatMap((r) => r.vouchers)
           const main = vs.filter((v) => v.grp === 'main' && v.status === 'available').length
@@ -40,7 +40,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             <Link
               key={b.id}
               href={`/accounts?brand=${b.id}`}
-              className={`flex flex-col gap-1 rounded-xl border bg-white p-3.5 ${f.brand === b.id ? 'border-orange-500' : 'border-cream-300'}`}
+              className={`flex min-w-[150px] shrink-0 flex-col gap-1 rounded-xl border bg-white p-3.5 md:min-w-0 ${f.brand === b.id ? 'border-orange-500' : 'border-cream-300'}`}
             >
               <span className="text-xs font-bold uppercase tracking-[0.06em] text-ink-500">{b.name}</span>
               <span className="font-display text-2xl font-bold">{main + extra}</span>
@@ -56,14 +56,14 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           Cari akun
           <input name="q" defaultValue={f.q} placeholder="ID akun, nomor, atau ID voucher" className={inputCls} />
         </label>
-        <label className="flex flex-col gap-1.5 text-sm font-semibold">
+        <label className="flex min-w-[100px] flex-1 flex-col gap-1.5 text-sm font-semibold sm:flex-none">
           Brand
           <select name="brand" defaultValue={f.brand ?? ''} className={inputCls}>
             <option value="">Semua brand</option>
             {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-1.5 text-sm font-semibold">
+        <label className="flex min-w-[100px] flex-1 flex-col gap-1.5 text-sm font-semibold sm:flex-none">
           Sumber
           <select name="source" defaultValue={f.source ?? ''} className={inputCls}>
             <option value="">Semua sumber</option>
@@ -71,7 +71,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             <option value="panel">Panel Admin</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1.5 text-sm font-semibold">
+        <label className="flex min-w-[100px] flex-1 flex-col gap-1.5 text-sm font-semibold sm:flex-none">
           Status
           <select name="status" defaultValue={f.status ?? ''} className={inputCls}>
             <option value="">Semua status</option>
@@ -90,7 +90,41 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         ))}
       </div>
 
-      <section className="rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
+      {/* HP: daftar kartu agar ID akun, voucher, dan status terlihat tanpa menggeser tabel. */}
+      <ul className="flex flex-col gap-2 md:hidden">
+        {filtered.map((r) => {
+          const main = r.vouchers.filter((v) => v.grp === 'main')
+          const extra = r.vouchers.filter((v) => v.grp === 'extra')
+          const st = ACCOUNT_STATE[r.state]
+          const expired = r.active_until && r.active_until < jktDate()
+          return (
+            <li key={r.id}>
+              <Link href={`/accounts/${r.id}`} className="flex flex-col gap-2 rounded-xl border border-cream-300 bg-white p-3.5">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-mono font-semibold">{r.account_code}</span>
+                  <Pill tone={st.tone}>{st.label}</Pill>
+                </span>
+                <span className="text-xs text-ink-500">
+                  {brands.find((b) => b.id === r.brand_id)?.name} · {r.source === 'vm' ? `VM${r.vm_device_id ? ' ' + r.vm_device_id : ''}` : 'Panel'}
+                  {r.account_number && <span className="font-mono"> · {r.account_number}</span>}
+                </span>
+                <span className="flex flex-wrap items-center gap-1">
+                  {main.map((v) => (
+                    <span key={v.id} className={`rounded border px-1.5 text-xs font-bold ${CHIP[v.status]}`}>{typeCode(v.voucher_type_id)}</span>
+                  ))}
+                  {extra.length > 0 && <span className="text-xs text-ink-500">· tambahan {extra.filter((v) => v.status === 'available').length}/{extra.length}</span>}
+                  {r.active_until && (
+                    <span className={`ml-auto text-xs ${expired ? 'font-semibold text-danger-700' : 'text-ink-500'}`}>s/d {dateLabel(r.active_until)}</span>
+                  )}
+                </span>
+              </Link>
+            </li>
+          )
+        })}
+        {!filtered.length && <li className="rounded-xl bg-white p-4 text-sm text-ink-500">Tidak ada akun yang cocok.</li>}
+      </ul>
+
+      <section className="hidden rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 md:block">
         <Table head={['ID akun', 'Brand', 'Sumber', 'Nomor akun', 'Masuk', 'Aktif s/d', 'Voucher utama', 'Tambahan', 'Status', '']} empty="Tidak ada akun yang cocok.">
           {filtered.map((r) => {
             const main = r.vouchers.filter((v) => v.grp === 'main')
@@ -123,11 +157,11 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             )
           })}
         </Table>
-        <p className="mt-3 text-xs text-ink-500">
+      </section>
+      <p className="text-xs text-ink-500">
           Menampilkan {filtered.length} dari {rows.length} akun. Nomor akun hanya ada untuk akun dari Virtual Machine. Stok dihitung dari data yang dicatat di
           aplikasi ini, bukan disinkronkan dari aplikasi brand.
-        </p>
-      </section>
+      </p>
     </div>
   )
 }

@@ -1,6 +1,6 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/server'
+import { BottomTabs, MobileMenu, SideNav } from './nav'
 
 const STAFF_NAV = [
   { href: '/', label: 'Beranda' },
@@ -27,45 +27,40 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!profile?.is_active) redirect('/login')
   if (profile.must_change_password) redirect('/account/password')
   const isOwner = profile.role === 'owner'
+  const roleLabel = isOwner ? 'Owner' : 'Staf'
+  const logo = (
+    <span className="flex flex-col">
+      <span className="font-display text-xl font-extrabold text-white">
+        PROMO<span className="text-orange-500">HOLIC</span>
+      </span>
+      <span className="text-[11px] uppercase tracking-[0.08em] text-[#8790a6]">Control Center</span>
+    </span>
+  )
 
   return (
-    <div className="flex min-h-screen flex-wrap">
-      <aside className="flex flex-[1_1_100%] flex-col gap-4 bg-navy-900 px-3.5 py-5 text-[#c5cbd9] md:flex-[0_0_244px]">
-        <div className="flex flex-col px-2 pb-2">
-          <span className="font-display text-xl font-extrabold text-white">
-            PROMO<span className="text-orange-500">HOLIC</span>
-          </span>
-          <span className="text-[11px] uppercase tracking-[0.08em] text-[#8790a6]">Control Center</span>
-        </div>
-        <nav aria-label="Navigasi utama" className="flex flex-row flex-wrap gap-0.5 md:flex-col">
-          <span className="hidden px-2.5 pb-1.5 pt-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#8790a6] md:block">Operasional</span>
-          {STAFF_NAV.map((n) => (
-            <Link key={n.href} href={n.href} className="flex min-h-10 items-center rounded-lg px-2.5 text-sm font-medium hover:bg-navy-800 hover:text-white">
-              {n.label}
-            </Link>
-          ))}
-          {isOwner && (
-            <>
-              <span className="hidden px-2.5 pb-1.5 pt-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#8790a6] md:block">Owner</span>
-              {OWNER_NAV.map((n) => (
-                <Link key={n.href} href={n.href} className="flex min-h-10 items-center rounded-lg px-2.5 text-sm font-medium hover:bg-navy-800 hover:text-white">
-                  {n.label}
-                </Link>
-              ))}
-            </>
-          )}
-        </nav>
-        <div className="mt-auto hidden items-center justify-between gap-2 rounded-lg bg-navy-800 px-2.5 py-3 md:flex">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      {/* HP: header ringkas; menu lengkap lewat tombol, pintasan harian di bilah bawah. */}
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-3 bg-navy-900 px-4 py-2.5 md:hidden">
+        {logo}
+        <MobileMenu staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} name={profile.full_name} role={roleLabel} />
+      </header>
+
+      <aside className="hidden flex-[0_0_244px] flex-col gap-4 bg-navy-900 px-3.5 py-5 text-[#c5cbd9] md:flex">
+        <div className="px-2 pb-2">{logo}</div>
+        <SideNav staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} />
+        <div className="mt-auto flex items-center justify-between gap-2 rounded-lg bg-navy-800 px-2.5 py-3">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-white">{profile.full_name}</span>
-            <span className="text-xs text-[#8790a6]">{isOwner ? 'Owner' : 'Staf'}</span>
+            <span className="text-xs text-[#8790a6]">{roleLabel}</span>
           </div>
           <form action="/api/auth/logout" method="post">
             <button className="min-h-10 px-2 text-xs font-semibold text-[#c5cbd9] hover:text-white">Keluar</button>
           </form>
         </div>
       </aside>
-      <main className="min-w-0 flex-[999_1_560px] px-4 pb-12 pt-6 sm:px-8">{children}</main>
+
+      <main className="min-w-0 flex-1 px-4 pb-24 pt-5 sm:px-8 md:pb-12 md:pt-6">{children}</main>
+      <BottomTabs />
     </div>
   )
 }

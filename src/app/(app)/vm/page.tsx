@@ -73,11 +73,11 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
         <Stat label="Baperan tersedia" value={vmVouchers.filter((v) => v.grp === 'extra' && v.status === 'available').length} />
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         <Card title="Virtual device">
-          <ul className="flex flex-col gap-1.5">
+          <ul className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0">
             {devs.map((d) => (
-              <li key={d.id}>
+              <li key={d.id} className="min-w-[150px] shrink-0 lg:min-w-0">
                 <Link
                   href={`/vm?device=${d.id}`}
                   aria-current={d.id === device?.id ? 'page' : undefined}
@@ -163,7 +163,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
 
           {device && (
             <Card title={`Tambah akun ke ${device.name}`}>
-              <ActionForm action={vmAddAccount} className="grid gap-3 sm:grid-cols-2" resultClassName="sm:col-span-2">
+              <ActionForm action={vmAddAccount} className="grid grid-cols-1 gap-3 sm:grid-cols-2" resultClassName="sm:col-span-2">
                 <input type="hidden" name="device" value={device.id} />
                 <input type="hidden" name="idem" value={randomUUID()} />
                 <label className={labelCls}>ID akun<input name="code" required pattern="KK-[0-9]{4}" placeholder="KK-0000" className={`${inputCls} font-mono`} autoComplete="off" /></label>
