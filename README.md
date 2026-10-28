@@ -8,8 +8,8 @@ modul Absensi & Benefit (staf + owner + persetujuan), dan modul Order & Akun (fo
 Belum terhubung ke database produksi dan belum di-deploy.
 
 Halaman yang sudah aktif: `/attendance`, `/owner/attendance`, `/approvals`, `/orders/new`, `/accounts`, `/accounts/[id]`,
-`/accounts/export`, `/panel`, `/stock`, `/stock/export`, `/vm`, `/finance`, `/finance/export`, `/account/password`.
-Menu lain (Riwayat Voucher, Konfigurasi Voucher) belum dibangun.
+`/accounts/export`, `/panel`, `/stock`, `/stock/export`, `/vm`, `/finance`, `/finance/export`, `/vouchers/history`,
+`/vouchers/history/export`, `/settings/vouchers`, `/account/password`. Semua menu di desain sudah memiliki halaman.
 
 ## Teknologi
 
