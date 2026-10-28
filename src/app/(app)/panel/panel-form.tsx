@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useState } from 'react'
 import { currentVersion, ruleLabel, type Rule } from '@/lib/inventory'
 import { panelAddAccount, panelAddStock } from './actions'
@@ -32,6 +33,7 @@ export function PanelForm(props: {
   creditPrice: number | null
 }) {
   const { mode, brands, types, versions, accounts, existingCodes, maxSlots, costs, creditPrice } = props
+  const hydrated = useHydrated()
   const [state, action, pending] = useActionState(mode === 'new' ? panelAddAccount : panelAddStock, null)
   const [ack, setAck] = useState<typeof state>(null)
   const [idem, setIdem] = useState(() => crypto.randomUUID())
@@ -106,7 +108,7 @@ export function PanelForm(props: {
       }}
     >
       <input type="hidden" name="idem" value={idem} />
-      <fieldset disabled={pending} className="flex min-w-0 flex-col gap-4 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
+      <fieldset disabled={pending || !hydrated} className="flex min-w-0 flex-col gap-4 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
         {mode === 'new' ? (
           <>
             <div className="flex flex-col gap-1.5">

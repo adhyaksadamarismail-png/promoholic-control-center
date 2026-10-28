@@ -1,9 +1,16 @@
 'use client'
 
-import { createContext, startTransition, useActionState, useContext, useState } from 'react'
+import { createContext, startTransition, useActionState, useContext, useEffect, useState } from 'react'
 
 export type ActionResult = { ok: boolean; message: string; data?: unknown }
 type Action = (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>
+
+/** true setelah komponen terpasang di browser. Sebelum itu form dikunci agar tidak terkirim sebagai form HTML biasa. */
+export function useHydrated() {
+  const [ready, setReady] = useState(false)
+  useEffect(() => setReady(true), [])
+  return ready
+}
 
 const Pending = createContext<{ pending: boolean; submitter: string | null }>({ pending: false, submitter: null })
 
@@ -23,6 +30,7 @@ export function ActionForm({
 }) {
   const [state, formAction, pending] = useActionState(action, null)
   const [submitter, setSubmitter] = useState<string | null>(null)
+  const hydrated = useHydrated()
   return (
     <form
       className={className}
@@ -37,7 +45,7 @@ export function ActionForm({
       }}
     >
       <Pending.Provider value={{ pending, submitter }}>
-        <fieldset disabled={pending} className="contents">
+        <fieldset disabled={pending || !hydrated} className="contents">
           {children}
         </fieldset>
       </Pending.Provider>

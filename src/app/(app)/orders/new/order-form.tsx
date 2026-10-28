@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useMemo, useState } from 'react'
 import { currentVersion, previewDiscount, ruleLabel, type Rule } from '@/lib/inventory'
 import { createOrder } from './actions'
@@ -48,6 +49,7 @@ function Money({ value, onChange, name, placeholder }: { value: number | null; o
 }
 
 export function OrderForm({ brands, accounts, vouchers, types, versions }: { brands: Brand[]; accounts: Account[]; vouchers: Voucher[]; types: VType[]; versions: Version[] }) {
+  const hydrated = useHydrated()
   const [state, action, pending] = useActionState(createOrder, null)
   const [idem, setIdem] = useState(() => crypto.randomUUID())
   const [formKey, setFormKey] = useState(0)
@@ -137,7 +139,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
     >
       <input type="hidden" name="idem" value={idem} />
       <input type="hidden" name="voucher" value={voucherId ?? ''} />
-      <fieldset disabled={pending} className="flex min-w-0 flex-col gap-4">
+      <fieldset disabled={pending || !hydrated} className="flex min-w-0 flex-col gap-4">
         <Step n={1} title="Brand">
           <div className="flex flex-wrap gap-2">
             {brands.map((b) => {
