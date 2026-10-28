@@ -189,5 +189,18 @@ await expectFail('staf tidak bisa membaca audit log', async () => {
   if (r[0].n === 0) throw new Error('0 baris terlihat')
 })
 
+await expectFail('staf tidak bisa mengubah jadwal', () => as('rani', () =>
+  q(`select public.set_schedule($1, '{1,2}', '08:00', '20:00', 60, current_date + 1, 'uji')`, [ids.rani])), 'khusus owner')
+await as('owner', async () => {
+  const from = (await q(`select (public.jkt_date(now()) + 7) d`))[0].d
+  await expectOk('owner mengubah jadwal dengan alasan', () =>
+    q(`select public.set_schedule($1, '{2,4,6,7}', '09:00', '21:00', 60, $2, 'tukar hari dengan Dimas')`, [ids.rani, from]))
+  const r = await q(`select count(*) filter (where effective_to is null)::int aktif, count(*)::int semua
+                     from public.schedule_templates where admin_id = $1`, [ids.rani])
+  r[0].aktif === 4 && r[0].semua === 8 ? ok('versi jadwal lama ditutup, bukan dihapus') : bad('histori jadwal', JSON.stringify(r[0]))
+  await expectFail('perubahan kedua di tanggal yang sama ditolak', () =>
+    q(`select public.set_schedule($1, '{1}', '09:00', '21:00', 60, $2, 'uji ulang')`, [ids.rani, from]), 'Sudah ada')
+})
+
 console.log(failed ? `\n${failed} pemeriksaan gagal` : '\nSemua pemeriksaan lulus')
 process.exit(failed ? 1 : 0)

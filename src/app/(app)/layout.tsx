@@ -23,8 +23,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const supabase = await createSessionClient()
   const { data: auth } = await supabase.auth.getUser()
   if (!auth.user) redirect('/login')
-  const { data: profile } = await supabase.from('profiles').select('full_name, role, is_active').eq('id', auth.user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('full_name, role, is_active, must_change_password').eq('id', auth.user.id).single()
   if (!profile?.is_active) redirect('/login')
+  if (profile.must_change_password) redirect('/account/password')
   const isOwner = profile.role === 'owner'
 
   return (
