@@ -168,6 +168,8 @@ export async function createStaff(_: ActionResult | null, fd: FormData): Promise
     await admin.auth.admin.deleteUser(data.user.id)
     return { ok: false, message: 'Gagal menyimpan profil staf.' }
   }
+  // Simpan hash password sementara agar penggantian password bisa dibuktikan (lihat mark_password_changed).
+  await admin.rpc('_record_temp_password', { p_profile: data.user.id })
   await admin.from('audit_log').insert({
     actor_id: me.user?.id, action: 'staff.create', entity: 'profiles', entity_id: data.user.id, after: { username, full_name: fullName },
   })

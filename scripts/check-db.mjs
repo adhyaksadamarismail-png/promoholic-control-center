@@ -202,5 +202,13 @@ await as('owner', async () => {
     q(`select public.set_schedule($1, '{1}', '09:00', '21:00', 60, $2, 'uji ulang')`, [ids.rani, from]), 'Sudah ada')
 })
 
+await as('owner', () => q(`select public.revoke_sessions($1)`, [ids.dimas]))
+await expectFail('akun wajib ganti password tidak bisa beraksi lewat API', () => as('dimas', () =>
+  q(`select public.attendance_action(gen_random_uuid(), 'clock_in')`)), 'ganti password')
+await expectFail('tandai sudah ganti password tanpa benar-benar mengganti ditolak', () => as('dimas', () =>
+  q(`select public.mark_password_changed()`)), 'belum diganti')
+await q(`update auth.users set encrypted_password = extensions.crypt('Password-Baru-2026', extensions.gen_salt('bf')) where id = $1`, [ids.dimas])
+await expectOk('setelah password diganti, penanda bisa dihapus', () => as('dimas', () => q(`select public.mark_password_changed()`)))
+
 console.log(failed ? `\n${failed} pemeriksaan gagal` : '\nSemua pemeriksaan lulus')
 process.exit(failed ? 1 : 0)

@@ -1,0 +1,220 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+// Uji keamanan & alur lewat API Supabase lokal, persis seperti penyerang yang memegang anon key (publik).
+// Mengubah data: jalankan setelah `npm run db:reset`, lalu reset lagi bila ingin data awal.
+// Jalankan: npm run test:security
+import { createClient } from '@supabase/supabase-js'
+import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+
+const env = Object.fromEntries(
+  readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
+    .split('\n')
+    .filter((l) => /^[A-Z_]+=/.test(l))
+    .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1).replace(/^"|"$/g, '')]),
+)
+const URL_ = env.NEXT_PUBLIC_SUPABASE_URL
+const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const PASSWORD = 'DevOnly-Promoholic-2026'
+const CAPTCHA = 'XXXX.DUMMY.TOKEN.XXXX' // token dummy: diterima kunci rahasia uji Turnstile di supabase/.env
+const domain = env.STAFF_EMAIL_DOMAIN || 'staff.promoholic.local'
+
+let failed = 0
+const ok = (m) => console.log('  ✓ ' + m)
+const bad = (m) => { failed++; console.log('  ✗ ' + m) }
+const section = (m) => console.log('\n' + m)
+const client = () => createClient(URL_, ANON, { auth: { persistSession: false, autoRefreshToken: false } })
+
+async function signIn(username, { captcha = true } = {}) {
+  const c = client()
+  const { error } = await c.auth.signInWithPassword({
+    email: `${username}@${domain}`,
+    password: PASSWORD,
+    options: captcha ? { captchaToken: CAPTCHA } : undefined,
+  })
+  return { c, error }
+}
+async function expectDenied(name, p) {
+  const { data, error } = await p
+  if (error) return ok(`${name} — ditolak (${(error.code || '') + ' ' + error.message.slice(0, 60)})`)
+  if (Array.isArray(data) && data.length === 0) return ok(`${name} — 0 baris`)
+  bad(`${name} — TIDAK ditolak: ${JSON.stringify(data).slice(0, 120)}`)
+}
+async function expectOk(name, p) {
+  const { data, error } = await p
+  if (error) { bad(`${name} — gagal: ${error.message}`); return null }
+  ok(name)
+  return data
+}
+
+// ───────────────────────────────────────────────────────────
+section('1. Login langsung ke Supabase Auth (melewati route aplikasi)')
+{
+  const { error } = await signIn('rani', { captcha: false })
+  error ? ok(`login tanpa token CAPTCHA ditolak (${error.message.slice(0, 60)})`) : bad('login tanpa CAPTCHA BERHASIL lewat API langsung — CAPTCHA & rate limit aplikasi bisa dilewati')
+  const signup = await client().auth.signUp({ email: `penyusup@${domain}`, password: 'Penyusup-12345', options: { captchaToken: CAPTCHA } })
+  signup.error ? ok(`pendaftaran publik ditolak (${signup.error.message.slice(0, 50)})`) : bad('pendaftaran publik BERHASIL')
+}
+
+// ───────────────────────────────────────────────────────────
+section('2. Pengguna anonim (hanya anon key)')
+{
+  const a = client()
+  for (const t of ['profiles', 'accounts', 'account_list', 'vouchers', 'orders', 'voucher_usage_list', 'shifts', 'audit_log', 'login_attempts', 'weekly_payrolls', 'vm_devices', 'brands'])
+    await expectDenied(`anon baca ${t}`, a.from(t).select('*').limit(1))
+  await expectDenied('anon panggil record_order', a.rpc('record_order', { p_voucher: randomUUID(), p_customer_name: 'x', p_customer_wa: '081234567890', p_ref: null, p_menu_price: 1, p_sell_price: 1, p_extra_cost: 0, p_manual_discount: null, p_price_after_override: null, p_confirm: true, p_idem: randomUUID() }))
+  await expectDenied('anon panggil current_app_role', a.rpc('current_app_role'))
+}
+
+const { c: owner } = await signIn('owner')
+const { c: rani } = await signIn('rani')
+const { c: dimas } = await signIn('dimas')
+const { c: sekar } = await signIn('sekar')
+const id = async (c) => (await c.auth.getUser()).data.user.id
+const ids = { owner: await id(owner), rani: await id(rani), dimas: await id(dimas), sekar: await id(sekar) }
+
+// ───────────────────────────────────────────────────────────
+section('3. Staf membaca data yang bukan haknya')
+{
+  await expectDenied('staf baca tabel accounts (nomor & identitas asli)', rani.from('accounts').select('*'))
+  await expectDenied('staf baca vm_devices', rani.from('vm_devices').select('*'))
+  await expectDenied('staf baca audit_log', rani.from('audit_log').select('*'))
+  await expectDenied('staf baca login_attempts', rani.from('login_attempts').select('*'))
+  await expectDenied('staf baca pembelian persediaan', rani.from('inventory_purchases').select('*'))
+  await expectDenied('staf baca biaya operasional', rani.from('expenses').select('*'))
+  await expectDenied('staf baca order admin lain', rani.from('orders').select('code').neq('admin_id', ids.rani))
+  await expectDenied('staf baca shift admin lain', rani.from('shifts').select('code').neq('admin_id', ids.rani))
+  await expectDenied('staf baca rekap gaji admin lain', rani.from('weekly_payrolls').select('id').neq('admin_id', ids.rani))
+  await expectDenied('staf baca uang saku admin lain', rani.from('shift_earnings').select('id').neq('admin_id', ids.rani))
+  const { data: acc } = await rani.from('account_list').select('account_number, vm_device_id, identity_note').not('account_number', 'is', null).limit(3)
+  acc?.length && acc.every((a) => a.account_number.includes('•') && !a.vm_device_id && !a.identity_note)
+    ? ok('nomor akun VM tersamar, device & identitas kosong untuk staf')
+    : bad('account_list membocorkan data: ' + JSON.stringify(acc))
+  const { data: use } = await dimas.from('voucher_usage_list').select('customer_wa, admin_id').neq('admin_id', ids.dimas).limit(3)
+  use?.length && use.every((u) => u.customer_wa.includes('•')) ? ok('WhatsApp customer order admin lain tersamar') : bad('voucher_usage_list: ' + JSON.stringify(use))
+}
+
+// ───────────────────────────────────────────────────────────
+section('4. Staf menulis langsung ke tabel (melewati fungsi server)')
+{
+  await expectDenied('staf ubah perannya sendiri jadi owner', rani.from('profiles').update({ role: 'owner' }).eq('id', ids.rani).select())
+  await expectDenied('staf aktifkan izin restock sendiri', dimas.from('profiles').update({ can_restock_panel: true }).eq('id', ids.dimas).select())
+  await expectDenied('staf sisipkan profil owner baru', rani.from('profiles').insert({ id: randomUUID(), username: 'palsu', full_name: 'Palsu', role: 'owner' }).select())
+  const { data: v } = await rani.from('vouchers').select('id, account_id').eq('status', 'available').limit(1).single()
+  await expectDenied('staf ubah status voucher langsung', rani.from('vouchers').update({ status: 'available' }).eq('id', v.id).select())
+  await expectDenied('staf hapus voucher', rani.from('vouchers').delete().eq('id', v.id).select())
+  await expectDenied('staf tulis histori stok', rani.from('stock_ledger').insert({ voucher_id: v.id, account_id: v.account_id, delta: 1, reason: 'restock', status_after: 'available' }).select())
+  await expectDenied('staf hapus histori stok', rani.from('stock_ledger').delete().gt('id', 0).select())
+  await expectDenied('staf hapus audit log', rani.from('audit_log').delete().gt('id', 0).select())
+  await expectDenied('staf ubah order', rani.from('orders').update({ net_profit: 999999 }).eq('admin_id', ids.rani).select())
+  await expectDenied('staf sisipkan klaim benefit langsung', rani.from('benefit_claims').insert({ entitlement_id: randomUUID() }).select())
+  await expectDenied('staf sisipkan event absen langsung', rani.from('attendance_events').insert({ shift_id: randomUUID(), kind: 'clock_in' }).select())
+  await expectDenied('staf tambah versi aturan voucher', rani.from('voucher_type_versions').insert({ voucher_type_id: randomUUID(), discount_pct: 100, effective_from: new Date().toISOString() }).select())
+  await expectDenied('staf ubah nama jenis voucher', rani.from('voucher_types').update({ name: 'x' }).neq('id', randomUUID()).select())
+  await expectDenied('staf tambah aturan bonus', rani.from('bonus_rules').insert({ method: 'fixed_per_shift', fixed_rp: 1000000, effective_from: new Date().toISOString() }).select())
+  await expectDenied('staf ubah harga kredit', rani.from('credit_prices').insert({ rp_per_credit: 1, effective_from: new Date().toISOString() }).select())
+  await expectDenied('staf ubah rekap gaji', rani.from('weekly_payrolls').update({ approved_total: 9999999 }).eq('admin_id', ids.rani).select())
+  await expectDenied('staf tambah jadwal', rani.from('schedule_templates').insert({ admin_id: ids.rani, weekday: 1, start_time: '08:00', end_time: '09:00', effective_from: '2026-01-01' }).select())
+}
+
+// ───────────────────────────────────────────────────────────
+section('5. Staf memanggil fungsi khusus owner / internal')
+{
+  const any = randomUUID()
+  const calls = [
+    ['vm_add_account', { p_device: 'VD-01', p_code: 'KK-0999', p_number: '081299990000', p_active_until: null, p_manual: {}, p_idem: any }],
+    ['vm_add_device', { p_name: 'Device Penyusup', p_note: null }],
+    ['vm_update_account', { p_account: any, p_number: '081200000000', p_device: 'VD-01', p_active_until: null }],
+    ['decide_approval', { p_request: any, p_approve: true, p_note: null }],
+    ['decide_earning', { p_earning: any, p_approve: true, p_note: null }],
+    ['build_weekly_payroll', { p_admin: ids.rani, p_period_start: '2026-10-26' }],
+    ['approve_weekly_payroll', { p_payroll: any, p_adjustments: [] }],
+    ['mark_payroll_paid', { p_payroll: any, p_note: null }],
+    ['generate_regular_shifts', { p_week_start: '2026-11-02' }],
+    ['add_extra_shift', { p_admin: ids.rani, p_start: '2026-11-01T10:00:00+07:00', p_end: '2026-11-01T20:00:00+07:00' }],
+    ['set_schedule', { p_admin: ids.rani, p_weekdays: [1], p_start: '08:00', p_end: '20:00', p_break: 60, p_effective_from: '2026-12-01', p_note: 'penyusup' }],
+    ['set_staff_active', { p_profile: ids.sekar, p_active: false }],
+    ['set_staff_permission', { p_profile: ids.dimas, p_can_restock: true }],
+    ['revoke_sessions', { p_profile: ids.owner }],
+    ['flag_incomplete_shifts', {}],
+    ['_create_account', { p_brand: 'KK', p_code: 'KK-0998', p_source: 'panel', p_device: null, p_number: null, p_identity: null, p_active_until: null, p_manual: {}, p_idem: any }],
+    ['_compute_earning', { p_shift: any }],
+    ['write_audit', { p_action: 'x', p_entity: 'x', p_entity_id: 'x', p_before: null, p_after: null }],
+  ]
+  for (const [fn, args] of calls) await expectDenied(`staf panggil ${fn}`, rani.rpc(fn, args))
+  await expectDenied('staf tanpa izin restock membuat akun Panel', dimas.rpc('panel_add_account', { p_brand: 'FR', p_code: 'FR-0900', p_identity: null, p_active_until: null, p_manual: { D25: 1 }, p_idem: randomUUID() }))
+  const { data: vmAcc } = await owner.from('accounts').select('id').eq('source', 'vm').limit(1).single()
+  await expectDenied('staf berizin menambah stok ke akun VM', rani.rpc('add_stock', { p_account: vmAcc.id, p_items: [{ type: 'BP', qty: 1 }], p_idem: randomUUID() }))
+  const { data: other } = await owner.from('shifts').select('id').eq('admin_id', ids.dimas).limit(1).single()
+  await expectDenied('staf absen di shift admin lain', rani.rpc('attendance_action', { p_shift: other.id, p_kind: 'clock_in' }))
+  await expectDenied('staf klaim benefit shift admin lain', rani.rpc('claim_benefit', { p_shift: other.id }))
+}
+
+// ───────────────────────────────────────────────────────────
+section('6. Alur bersamaan & kiriman ganda')
+{
+  const { data: v } = await owner.from('vouchers').select('id, code').like('code', 'V-KK%-A').eq('status', 'available').limit(1).single()
+  const args = (idem) => ({ p_voucher: v.id, p_customer_name: 'Uji Bersamaan', p_customer_wa: '081234567890', p_ref: null, p_menu_price: 60000, p_sell_price: 40000, p_extra_cost: 0, p_manual_discount: null, p_price_after_override: null, p_confirm: true, p_idem: idem })
+  const res = await Promise.all([rani.rpc('record_order', args(randomUUID())), sekar.rpc('record_order', args(randomUUID())), dimas.rpc('record_order', args(randomUUID()))])
+  const wins = res.filter((r) => !r.error).length
+  wins === 1 ? ok(`3 admin memakai ${v.code} bersamaan → hanya 1 berhasil`) : bad(`${wins} order berhasil memakai voucher yang sama`)
+
+  const idem = randomUUID()
+  const code = 'FR-07' + String(Math.floor(Math.random() * 90) + 10)
+  const two = await Promise.all([1, 2].map(() => rani.rpc('panel_add_account', { p_brand: 'FR', p_code: code, p_identity: null, p_active_until: null, p_manual: { D25: 2 }, p_idem: idem })))
+  const codes = new Set(two.filter((r) => !r.error).map((r) => r.data))
+  const { count } = await owner.from('accounts').select('id', { count: 'exact', head: true }).eq('account_code', code)
+  count === 1 && codes.size <= 1 ? ok(`restock dikirim 2× bersamaan (kunci sama) → 1 akun ${code}`) : bad(`restock ganda: ${count} akun, kode ${[...codes]}`)
+  await expectDenied('akun dengan ID sama tidak bisa dibuat ulang', rani.rpc('panel_add_account', { p_brand: 'FR', p_code: code, p_identity: null, p_active_until: null, p_manual: { D25: 1 }, p_idem: randomUUID() }))
+
+  // Cari staf yang punya shift berjalan sekarang (jadwal seed bergantung hari & jam saat uji dijalankan).
+  const nowIso = new Date().toISOString()
+  const { data: sh } = await owner.from('shifts').select('id, admin_id').eq('status', 'scheduled')
+    .lte('planned_start', new Date(Date.now() + 2 * 3600e3).toISOString()).gte('planned_end', nowIso).in('admin_id', [ids.rani, ids.sekar])
+    .limit(1).maybeSingle()
+  const who = sh?.admin_id === ids.rani ? rani : sekar
+  if (sh) {
+    const starts = await Promise.all([1, 2].map(() => who.rpc('attendance_action', { p_shift: sh.id, p_kind: 'clock_in' })))
+    starts.filter((r) => !r.error).length === 1 ? ok('absen masuk 2× bersamaan → 1 tercatat') : bad('absen masuk ganda')
+    const claims = await Promise.all([1, 2, 3].map(() => who.rpc('claim_benefit', { p_shift: sh.id })))
+    const n = claims.filter((r) => !r.error).length
+    n === 1 ? ok('klaim benefit 3× bersamaan → 1 tercatat') : bad(`${n} klaim benefit tercatat`)
+    const outs = await Promise.all([1, 2].map(() => who.rpc('attendance_action', { p_shift: sh.id, p_kind: 'clock_out' })))
+    outs.filter((r) => !r.error).length === 1 ? ok('absen pulang 2× bersamaan → 1 tercatat') : bad('absen pulang ganda')
+  } else console.log('  · (lewati uji absen/klaim bersamaan: tidak ada shift Rani/Sekar yang sedang berjalan saat ini)')
+}
+
+// ───────────────────────────────────────────────────────────
+section('7. Akun nonaktif & token palsu')
+{
+  await expectOk('owner menonaktifkan Bayu', owner.rpc('set_staff_active', { p_profile: (await owner.from('profiles').select('id').eq('username', 'bayu').single()).data.id, p_active: false }))
+  const { c: bayu, error } = await signIn('bayu')
+  if (error) ok('akun nonaktif tidak bisa login: ' + error.message.slice(0, 50))
+  else {
+    await expectDenied('token akun nonaktif membaca shift', bayu.from('shifts').select('id'))
+    await expectDenied('token akun nonaktif mencatat order', bayu.rpc('record_order', { p_voucher: randomUUID(), p_customer_name: 'x', p_customer_wa: '081234567890', p_ref: null, p_menu_price: 1, p_sell_price: 1, p_extra_cost: 0, p_manual_discount: null, p_price_after_override: null, p_confirm: true, p_idem: randomUUID() }))
+  }
+  await owner.rpc('set_staff_active', { p_profile: (await owner.from('profiles').select('id').eq('username', 'bayu').single()).data.id, p_active: true })
+
+  const head = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const body = Buffer.from(JSON.stringify({ sub: ids.owner, role: 'authenticated', exp: 9999999999 })).toString('base64url')
+  const forged = `${head}.${body}.${Buffer.from('tanda-tangan-palsu').toString('base64url')}`
+  const f = createClient(URL_, ANON, { global: { headers: { Authorization: `Bearer ${forged}` } }, auth: { persistSession: false } })
+  await expectDenied('token JWT palsu atas nama owner', f.from('audit_log').select('id').limit(1))
+}
+
+// ───────────────────────────────────────────────────────────
+section('8. Wajib ganti password setelah reset')
+{
+  await owner.rpc('revoke_sessions', { p_profile: ids.dimas }) // menandai must_change_password
+  const { c: d2, error } = await signIn('dimas')
+  if (error) bad('login dimas gagal: ' + error.message)
+  else await expectDenied('akun yang wajib ganti password mencatat order lewat API', d2.rpc('record_order', { p_voucher: randomUUID(), p_customer_name: 'x', p_customer_wa: '081234567890', p_ref: null, p_menu_price: 1, p_sell_price: 1, p_extra_cost: 0, p_manual_discount: null, p_price_after_override: null, p_confirm: true, p_idem: randomUUID() }))
+  await expectDenied('menandai sudah ganti password tanpa menggantinya', d2.rpc('mark_password_changed'))
+  // Ganti password lewat Auth (hash baru), lalu penanda boleh dihapus.
+  await d2.auth.updateUser({ password: PASSWORD + '-baru' })
+  await expectOk('setelah password diganti, akun bisa dipakai lagi', d2.rpc('mark_password_changed'))
+  await d2.auth.updateUser({ password: PASSWORD }) // kembalikan password uji
+}
+
+console.log(failed ? `\n${failed} pemeriksaan gagal` : '\nSemua pemeriksaan keamanan lulus')
+process.exit(failed ? 1 : 0)

@@ -9,10 +9,22 @@ function required(name: string): string {
   return v
 }
 
+/**
+ * Cookie sesi hanya dibaca server (aplikasi tidak memakai klien Supabase di browser),
+ * jadi dibuat httpOnly agar token tidak bisa dicuri lewat skrip di halaman.
+ */
+export const SESSION_COOKIE = {
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+}
+
 /** Klien dengan sesi pengguna (cookie). Semua query tunduk pada RLS. */
 export async function createSessionClient() {
   const store = await cookies()
   return createServerClient(required('NEXT_PUBLIC_SUPABASE_URL'), required('NEXT_PUBLIC_SUPABASE_ANON_KEY'), {
+    cookieOptions: SESSION_COOKIE,
     cookies: {
       getAll: () => store.getAll(),
       setAll: (list) => {

@@ -141,11 +141,12 @@ sign_in_sign_ups = 30
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
 
-# Configure one of the supported captcha providers: `hcaptcha`, `turnstile`.
-# [auth.captcha]
-# enabled = true
-# provider = "hcaptcha"
-# secret = ""
+# CAPTCHA diverifikasi oleh Supabase Auth sendiri, sehingga login langsung ke API (melewati route aplikasi)
+# tetap wajib token Turnstile. Kunci rahasia dari supabase/.env (lokal: kunci uji Cloudflare).
+[auth.captcha]
+enabled = true
+provider = "turnstile"
+secret = "env(SUPABASE_AUTH_CAPTCHA_SECRET)"
 
 [auth.email]
 # Harus true agar login email/password aktif. Pendaftaran publik tetap mati lewat [auth] enable_signup = false.

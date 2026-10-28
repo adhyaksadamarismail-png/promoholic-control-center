@@ -12,6 +12,8 @@ export async function middleware(request: NextRequest) {
   if (!url || !key) return response
 
   const supabase = createServerClient(url, key, {
+    // Sama dengan SESSION_COOKIE di lib/supabase/server.ts (middleware tidak boleh mengimpor modul server-only).
+    cookieOptions: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' },
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (list) => {

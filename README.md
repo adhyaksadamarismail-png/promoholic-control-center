@@ -25,6 +25,7 @@ Kebutuhan: Node.js 20+, dan **Docker Desktop** (atau OrbStack) untuk Supabase lo
 npm install
 npm run db:start          # menjalankan Supabase lokal, menampilkan URL, anon key, service role key
 cp .env.example .env.local # lalu isi kunci dari output db:start
+cp supabase/.env.example supabase/.env   # kunci rahasia CAPTCHA untuk Supabase Auth (lokal: kunci uji)
 npm run db:reset          # menerapkan migrasi + seed data dummy
 npm run dev               # http://localhost:3000
 ```
@@ -32,14 +33,22 @@ npm run dev               # http://localhost:3000
 Akun uji lokal ada di `supabase/seed.sql` (username `owner`, `rani`, `dimas`, `sekar`, `bayu`).
 Kunci Turnstile di `.env.example` adalah kunci uji resmi Cloudflare yang selalu lolos — ganti untuk staging/produksi.
 
-Jika `db:start` gagal karena health check container tambahan (Studio, storage) kehabisan waktu, jalankan layanan inti saja:
-
-```bash
-npx supabase start -x studio,postgres-meta,edge-runtime,logflare,vector,imgproxy,storage-api
-```
+`db:start` hanya menjalankan layanan yang dipakai aplikasi (database, Auth, REST). Studio, storage, realtime, dan
+layanan lain sengaja dilewati karena health check-nya sering membuat start/reset macet.
 
 Jika perintah `docker` tidak dikenali padahal Docker Desktop sudah berjalan, buka Docker Desktop sekali agar CLI-nya terpasang,
 atau tambahkan `/Applications/Docker.app/Contents/Resources/bin` ke PATH.
+
+### Uji keamanan lewat API (butuh Supabase lokal)
+
+```bash
+npm run db:reset
+npm run test:security
+```
+
+Menyerang API Supabase langsung memakai anon key (yang memang publik) sebagai anonim, staf, staf tanpa izin, akun nonaktif,
+dan token palsu: login tanpa CAPTCHA, baca/tulis tabel yang bukan haknya, panggil fungsi owner/internal, pemakaian voucher
+bersamaan, restock & klaim ganda, serta gerbang wajib ganti password. Mengubah data uji; jalankan `db:reset` sesudahnya.
 
 ### Pemeriksaan tanpa Docker
 
@@ -75,6 +84,9 @@ src/lib                          format, pemanggil RPC, aturan tampilan absensi 
 ## Prinsip keamanan
 
 - Tidak ada pendaftaran publik; akun staf dibuat owner. Password di-hash Supabase Auth.
+- CAPTCHA diverifikasi oleh Supabase Auth sendiri (`[auth.captcha]`), jadi login langsung ke API tanpa token juga ditolak.
+- Cookie sesi `httpOnly` + `SameSite=Lax` (`Secure` di produksi); header keamanan (anti-iframe, nosniff, HSTS di produksi).
+- Akun yang direset owner tidak bisa beraksi lewat API sampai password benar-benar diganti (dicek dari hash, bukan pengakuan klien).
 - Peran dibaca dari tabel `profiles` berdasarkan sesi, tidak pernah dari input.
 - Semua penulisan data operasional lewat fungsi database yang mengecek peran; staf tidak punya hak INSERT/UPDATE/DELETE langsung.
 - Waktu absen dan klaim selalu `now()` di server. Histori stok, absensi, dan audit log hanya bisa ditambah.

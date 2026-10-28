@@ -13,19 +13,6 @@ const MAX_FAILS_PER_USER = 5
 const MAX_FAILS_PER_IP = 20
 const GENERIC = 'Username atau password salah.'
 
-async function verifyCaptcha(token: string, ip: string | null) {
-  const secret = process.env.TURNSTILE_SECRET_KEY
-  if (!secret) throw new Error('TURNSTILE_SECRET_KEY belum diisi')
-  const form = new FormData()
-  form.append('secret', secret)
-  form.append('response', token)
-  if (ip) form.append('remoteip', ip)
-  const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: form })
-  if (!res.ok) return false
-  const data = (await res.json()) as { success?: boolean }
-  return data.success === true
-}
-
 export async function POST(request: NextRequest) {
   const parsed = Body.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Lengkapi username, password, dan verifikasi CAPTCHA.' }, { status: 400 })
@@ -45,15 +32,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Terlalu banyak percobaan. Coba lagi dalam ${WINDOW_MINUTES} menit.` }, { status: 429 })
   }
 
-  // CAPTCHA diverifikasi di server sebelum password dicek.
-  if (!(await verifyCaptcha(captchaToken, ip))) {
-    return NextResponse.json({ error: 'Verifikasi CAPTCHA gagal. Muat ulang dan coba lagi.' }, { status: 400 })
-  }
-
+  // Token CAPTCHA diverifikasi Supabase Auth sendiri ([auth.captcha] di config), jadi login langsung ke API
+  // tanpa CAPTCHA juga ditolak. Token Turnstile sekali pakai, karena itu tidak diverifikasi dua kali di sini.
   const supabase = await createSessionClient()
-  const { error } = await supabase.auth.signInWithPassword({ email: usernameToEmail(username), password })
+  const { error } = await supabase.auth.signInWithPassword({ email: usernameToEmail(username), password, options: { captchaToken } })
   const record = (success: boolean) => admin.from('login_attempts').insert({ username, ip, success })
 
+  if (error?.code === 'captcha_failed') {
+    return NextResponse.json({ error: 'Verifikasi CAPTCHA gagal. Muat ulang dan coba lagi.' }, { status: 400 })
+  }
   if (error) {
     await record(false)
     return NextResponse.json({ error: GENERIC }, { status: 401 })
