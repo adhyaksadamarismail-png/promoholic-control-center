@@ -35,19 +35,9 @@ export function SideNav({ staff, owner }: { staff: NavItem[]; owner: NavItem[] |
   )
 }
 
-const TABS: NavItem[] = [
-  { href: '/', label: 'Beranda' },
-  { href: '/orders/new', label: 'Order' },
-  { href: '/accounts', label: 'Akun' },
-  { href: '/attendance', label: 'Absensi' },
-  { href: '/stock', label: 'Stok' },
-]
-// Modul yang punya navigasi internal sendiri di bagian bawah/atas: bilah tab global tidak ditampilkan agar tidak bertumpuk.
-const NO_BOTTOM_TABS = ['/finance']
-
 /**
- * Navigasi HP: header ringkas + menu lipat (dengan backdrop) + bilah tab bawah.
- * Satu state agar bilah tab bawah tersembunyi selama menu terbuka.
+ * Navigasi HP: header ringkas + menu lipat dengan backdrop. Tidak ada bilah tab bawah:
+ * semua modul diakses lewat menu ini sesuai peran.
  */
 export function MobileNav({ logo, staff, owner, name, role }: { logo: React.ReactNode; staff: NavItem[]; owner: NavItem[] | null; name: string; role: string }) {
   const path = usePathname()
@@ -76,7 +66,6 @@ export function MobileNav({ logo, staff, owner, name, role }: { logo: React.Reac
 
   const all = [...staff, ...(owner ?? [])]
   const current = all.filter((n) => isActive(path, n.href)).sort((a, b) => b.href.length - a.href.length)[0]
-  const showTabs = !open && !NO_BOTTOM_TABS.some((p) => isActive(path, p))
 
   return (
     <>
@@ -133,20 +122,6 @@ export function MobileNav({ logo, staff, owner, name, role }: { logo: React.Reac
         </>
       )}
 
-      {showTabs && (
-        <nav aria-label="Pintasan" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-cream-300 bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
-          {TABS.map((t) => (
-            <Link
-              key={t.href}
-              href={t.href}
-              aria-current={isActive(path, t.href) ? 'page' : undefined}
-              className="flex min-h-14 flex-1 items-center justify-center text-xs font-semibold text-ink-500 aria-[current=page]:text-navy-900 aria-[current=page]:shadow-[inset_0_3px_0_var(--color-orange-500)]"
-            >
-              {t.label}
-            </Link>
-          ))}
-        </nav>
-      )}
     </>
   )
 }

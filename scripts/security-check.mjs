@@ -202,6 +202,24 @@ section('6. Alur bersamaan & kiriman ganda')
 }
 
 // ───────────────────────────────────────────────────────────
+section('6a. Bulk restock')
+{
+  const vmRows = [{ line: 1, device: 'VD-01', code: '' + (700000 + Math.floor(Math.random() * 99999)), number: '0812' + Math.floor(10000000 + Math.random() * 89999999), items: {} }]
+  await expectDenied('staf bulk restock Virtual Machine', rani.rpc('bulk_restock', { p_source: 'vm', p_mode: 'new_account', p_brand: null, p_rows: vmRows, p_unit_cost: null, p_source_note: null, p_idem: randomUUID() }))
+  await expectDenied('staf tanpa izin bulk restock Panel', dimas.rpc('bulk_restock', { p_source: 'panel', p_mode: 'new_account', p_brand: 'KK', p_rows: [{ line: 1, code: '799999', items: {} }], p_unit_cost: null, p_source_note: null, p_idem: randomUUID() }))
+  await expectDenied('staf menulis tabel batch langsung', rani.from('restock_batches').insert({ source: 'panel', mode: 'new_account', idempotency_key: randomUUID() }).select())
+  const base = 600000 + Math.floor(Math.random() * 99999)
+  const rows = [0, 1, 2].map((i) => ({ line: i + 1, device: null, code: String(base + i), number: null, items: {} }))
+  const idem = randomUUID()
+  const two = await Promise.all([1, 2].map(() => rani.rpc('bulk_restock', { p_source: 'panel', p_mode: 'new_account', p_brand: 'KK', p_rows: rows, p_unit_cost: null, p_source_note: null, p_idem: idem })))
+  const { count } = await owner.from('accounts').select('id', { count: 'exact', head: true }).in('account_code', rows.map((r) => r.code))
+  const { count: batches } = await owner.from('restock_batches').select('id', { count: 'exact', head: true }).eq('idempotency_key', idem)
+  count === 3 && batches === 1 ? ok(`batch dikirim 2× bersamaan → 1 batch, 3 akun (${two.filter((r) => !r.error).length} respons berhasil)`) : bad(`batch ganda: ${count} akun, ${batches} batch`)
+  const { data: vis } = await rani.from('restock_batches').select('source')
+  vis?.every((b) => b.source === 'panel') ? ok('staf tidak melihat batch Virtual Machine') : bad('staf melihat batch VM')
+}
+
+// ───────────────────────────────────────────────────────────
 section('6b. Storage privat bukti receipt')
 {
   const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46])

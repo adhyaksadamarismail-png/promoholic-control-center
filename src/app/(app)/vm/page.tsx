@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { randomUUID } from 'node:crypto'
 import { createAdminClient, createSessionClient } from '@/lib/supabase/server'
 import { ActionForm, SubmitButton } from '@/components/action-form'
-import { Card, Note, PageHeader, Pill, Stat, inputCls, labelCls } from '@/components/ui'
+import { Card, Note, PageHeader, Pill, Stat, Tabs, inputCls, labelCls } from '@/components/ui'
+import { BulkRestock } from '@/components/bulk-restock'
+import { BatchHistory } from '@/components/batch-history'
 import { dateLabel, jktDate } from '@/lib/format'
 import { VOUCHER_STATUS, currentVersion, ruleLabel, type Rule, type VoucherStatus } from '@/lib/inventory'
 import { addDevice, vmAddAccount, vmAddBaperan, vmUpdateAccount } from './actions'
@@ -17,7 +19,7 @@ const CHIP: Record<VoucherStatus, string> = {
   broken: 'bg-danger-100 text-danger-700',
 }
 
-export default async function VmPage({ searchParams }: { searchParams: Promise<{ device?: string }> }) {
+export default async function VmPage({ searchParams }: { searchParams: Promise<{ device?: string; tab?: string }> }) {
   const supabase = await createSessionClient()
   const { data: auth } = await supabase.auth.getUser()
   const { data: role } = await supabase.rpc('current_app_role')
@@ -37,6 +39,25 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
       </div>
     )
   }
+
+  const tabs = (active: string) => (
+    <Tabs
+      items={[
+        { key: 'devices', label: 'Device & akun', href: '/vm' },
+        { key: 'bulk', label: 'Bulk Restock', href: '/vm?tab=bulk' },
+      ]}
+      active={active}
+    />
+  )
+  if ((await searchParams).tab === 'bulk')
+    return (
+      <div className="mx-auto flex max-w-6xl flex-col gap-5">
+        <PageHeader eyebrow="Khusus owner · input banyak akun sekaligus" title="Virtual Machine" />
+        {tabs('bulk')}
+        <BulkRestock source="vm" brands={[]} />
+        <BatchHistory source="vm" />
+      </div>
+    )
 
   const [{ data: devices }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }] = await Promise.all([
     supabase.from('vm_devices').select('id, name, note, is_active').order('id'),
@@ -61,6 +82,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
       <PageHeader eyebrow='Akun Kopi Kenangan per virtual device · sumber restock "Virtual Machine"' title="Virtual Machine">
         <Pill tone="orange">Khusus owner</Pill>
       </PageHeader>
+      {tabs('devices')}
       <Note>
         Data diisi manual oleh owner. Sistem tidak membaca voucher dari aplikasi Kopi Kenangan atau dari device; status voucher berubah hanya lewat
         transaksi dan koreksi yang tercatat.

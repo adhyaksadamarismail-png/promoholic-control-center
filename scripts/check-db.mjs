@@ -168,6 +168,76 @@ await as('owner', async () => {
   await expectFail('modal yang sudah diisi tidak bisa ditimpa', () => q(`select public.set_restock_unit_cost($1, 1)`, [r[0].id]), 'sudah diisi')
 })
 
+console.log('\nBulk restock')
+{
+  const rows = (arr) => JSON.stringify(arr)
+  const val = await as('rani', () => q(`select public.bulk_restock_validate('panel', 'new_account', 'KK', $1::jsonb) v`, [rows([
+    { line: 1, code: '300001', items: { A: 1, B: 1, C: 1 } },
+    { line: 2, code: '300002', items: { BP: 2 } },
+    { line: 3, code: '300001', items: {} },
+    { line: 4, code: 'KK-0142', items: {} },
+    { line: 5, code: '300003', items: { A: 2 } },
+    { line: 6, code: '300004', items: { X: 1 } },
+    { line: 7, code: '30#4', items: {} },
+  ])]))
+  const v = val[0].v
+  const st = v.map((r) => (r.ok ? 'ok' : r.error.slice(0, 24)))
+  v[0].ok && v[0].total === 3 && v[1].ok && v[1].total === 5 && !v[2].ok && !v[3].ok && !v[4].ok && !v[5].ok && !v[6].ok
+    ? ok('preview: valid, duplikat batch, sudah terdaftar, A=2 ditolak, jenis asing, ID salah — ' + st.join(' | '))
+    : bad('validasi bulk', JSON.stringify(st))
+  const before = (await q(`select count(*)::int n from public.vouchers`))[0].n
+  await expectFail('batch dengan baris tidak valid tidak disimpan sama sekali', () => as('rani', () =>
+    q(`select public.bulk_restock('panel','new_account','KK',$1::jsonb,null,null,gen_random_uuid())`, [rows([{ line: 1, code: '300011', items: {} }, { line: 2, code: 'KK-0142', items: {} }])])), 'Baris 2')
+  const mid = (await q(`select count(*)::int n from public.vouchers`))[0].n
+  mid === before && (await q(`select count(*)::int n from public.account_list where account_code = '300011'`))[0].n === 0
+    ? ok('atomik: tidak ada akun/voucher tersisa dari batch gagal') : bad('batch gagal meninggalkan data')
+  const key = (await q('select gen_random_uuid() k'))[0].k
+  const ok1 = await expectOk('bulk Panel: 3 akun baru (A,B,C otomatis + Baperan)', () => as('rani', () =>
+    q(`select public.bulk_restock('panel','new_account','KK',$1::jsonb,null,null,$2) r`, [rows([
+      { line: 1, code: '300001', items: {} }, { line: 2, code: '300002', items: { BP: 2 } }, { line: 3, code: 'KK-3000003', items: {} }]), key])))
+  const r1 = ok1?.[0].r
+  r1?.new_accounts === 3 && r1?.vouchers === 11 && Number(r1?.total_cost) === 12000
+    ? ok(`batch ${r1.batch}: 3 akun, 11 voucher, modal Rp12.000 (1 kredit/akun, bukan per voucher)`) : bad('ringkasan batch', JSON.stringify(r1))
+  const again = await as('rani', () => q(`select public.bulk_restock('panel','new_account','KK',$1::jsonb,null,null,$2) r`, [rows([{ line: 1, code: '300009', items: {} }]), key]))
+  again[0].r.repeated && again[0].r.batch === r1?.batch ? ok('kiriman ganda mengembalikan batch yang sama, tidak menyimpan ulang') : bad('idempotensi batch')
+  await as('rani', async () => {
+    const r = await expectOk('bulk tambah Baperan ke akun yang ada', () =>
+      q(`select public.bulk_restock('panel','add_stock','KK',$1::jsonb,null,null,gen_random_uuid()) r`, [rows([{ line: 1, code: '300001', items: { BP: 3 } }, { line: 2, code: '300002', items: { BP: 1 } }])]))
+    r?.[0].r.new_accounts === 0 && r?.[0].r.vouchers === 4 ? ok('tidak membuat akun baru; BP lanjut nomor') : bad('add_stock bulk', JSON.stringify(r?.[0].r))
+    const c = await q(`select string_agg(code, ',' order by code) c from public.vouchers where code like 'V-KK300002-BP%'`)
+    c[0].c === 'V-KK300002-BP01,V-KK300002-BP02,V-KK300002-BP03' ? ok('ID voucher unik & berurutan: ' + c[0].c) : bad('ID voucher', c[0].c)
+    await expectFail('mode tambah voucher tidak membuat ulang voucher utama', () =>
+      q(`select public.bulk_restock('panel','add_stock','KK',$1::jsonb,null,null,gen_random_uuid())`, [rows([{ line: 1, code: '300001', items: { A: 1 } }])]), 'tidak dibuat ulang')
+    const e = await expectOk('bulk Baperan saja (lepas & terikat akun), modal belum diisi', () =>
+      q(`select public.bulk_restock('panel','extra_only','KK',$1::jsonb,null,'Reseller B',gen_random_uuid()) r`, [rows([{ line: 1, code: null, items: { BP: 5 } }, { line: 2, code: '300001', items: { BP: 1 } }])]))
+    e?.[0].r.vouchers === 6 && e?.[0].r.cost_unknown === 6 && e?.[0].r.new_accounts === 0 ? ok('6 Baperan, tanpa akun baru, modal ditandai belum diisi') : bad('extra bulk', JSON.stringify(e?.[0].r))
+  })
+  await expectFail('staf tanpa izin tidak bisa bulk Panel', () => as('dimas', () => q(`select public.bulk_restock_validate('panel','new_account','KK','[{"line":1,"code":"399999","items":{}}]')`)), 'izin')
+  await expectFail('staf tidak bisa bulk Virtual Machine', () => as('rani', () => q(`select public.bulk_restock_validate('vm','new_account',null,'[{"line":1,"device":"VD-01","code":"399999","number":"081299990001","items":{}}]')`)), 'khusus owner')
+  await expectFail('staf tidak bisa menambah stok akun VM lewat bulk Panel', () => as('rani', () =>
+    q(`select public.bulk_restock('panel','add_stock','KK','[{"line":1,"code":"KK-0192","items":{"BP":1}}]',null,null,gen_random_uuid())`)), 'Virtual Machine')
+  await as('owner', async () => {
+    const r = await expectOk('owner bulk VM: device VM-01 dibaca sebagai VD-01, nomor wajib', () =>
+      q(`select public.bulk_restock('vm','new_account',null,$1::jsonb,null,null,gen_random_uuid()) r`, [rows([
+        { line: 1, device: 'VM-01', code: '400001', number: '0857-9000-0001', items: { BP: 1 } },
+        { line: 2, device: 'VD-02', code: '400002', number: '085790000002', items: {} }])]))
+    const a = await q(`select account_code, vm_device_id, source from public.accounts where account_code in ('400001','400002') order by 1`)
+    r && a.length === 2 && a[0].vm_device_id === 'VD-01' && a.every((x) => x.source === 'vm') ? ok('2 akun VM dibuat di device masing-masing') : bad('bulk VM', JSON.stringify(a))
+    const v = await q(`select public.bulk_restock_validate('vm','new_account',null,$1::jsonb) v`, [rows([
+      { line: 1, device: 'VD-01', code: '400003', number: '', items: {} },
+      { line: 2, device: 'VD-99', code: '400004', number: '085790000004', items: {} },
+      { line: 3, device: 'VD-01', code: '400005', number: '0857-9000-0001', items: {} }])])
+    const e = v[0].v.map((x) => x.error ?? 'ok')
+    e[0].includes('Nomor akun VM wajib') && e[1].includes('tidak ada') && e[2].includes('sudah dipakai') ? ok('VM: nomor wajib, device harus ada, nomor unik') : bad('validasi VM', JSON.stringify(e))
+    const b = await q(`select count(*)::int n from public.restock_batches`)
+    b[0].n >= 4 ? ok('riwayat batch tersimpan (' + b[0].n + ' batch)') : bad('riwayat batch')
+  })
+  await as('rani', async () => {
+    const vis = await q(`select source from public.restock_batches`)
+    vis.length && vis.every((x) => x.source === 'panel') ? ok('staf hanya melihat batch Panel, bukan batch VM') : bad('RLS batch', JSON.stringify(vis))
+  })
+}
+
 console.log('\nOrder & voucher')
 const vid = async (code) => (await q(`select id from public.vouchers where code = $1`, [code]))[0].id
 await expectFail('voucher yang sudah terpakai tidak bisa dipakai lagi', () => as('rani', async () =>

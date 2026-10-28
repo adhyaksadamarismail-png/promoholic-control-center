@@ -39,6 +39,21 @@ layanan lain sengaja dilewati karena health check-nya sering membuat start/reset
 Jika perintah `docker` tidak dikenali padahal Docker Desktop sudah berjalan, buka Docker Desktop sekali agar CLI-nya terpasang,
 atau tambahkan `/Applications/Docker.app/Contents/Resources/bin` ke PATH.
 
+### Bulk Restock
+
+Panel Admin → **Bulk Restock** (staf berizin & owner) dan Virtual Machine → **Bulk Restock** (khusus owner).
+Tempel teks atau unggah CSV, periksa preview tervalidasi server, lalu konfirmasi. Satu batch disimpan atomik
+(`bulk_restock`), dengan kunci idempoten agar klik ganda tidak menyimpan dua kali.
+
+```
+195678 | A=1 | B=1 | C=1                         # Panel: akun baru (brand dipilih di form)
+195681 | A=1 | B=1 | C=1 | BAPERAN=2
+VM-01 | 195700 | 0857-9100-0001 | A=1 | B=1 | C=1  # VM: device | akun | nomor akun | voucher
+- | BAPERAN=10                                     # Baperan saja tanpa akun (lepas)
+```
+
+CSV berheader juga diterima, mis. `akun,A,B,C,BAPERAN`.
+
 ### Uji keamanan lewat API (butuh Supabase lokal)
 
 ```bash

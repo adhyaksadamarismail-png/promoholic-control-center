@@ -39,7 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      {/* HP: header ringkas, menu lipat dengan backdrop, dan bilah tab bawah (disembunyikan saat menu terbuka). */}
+      {/* HP: header ringkas dengan menu lipat (backdrop, bisa digulir). Tanpa bilah tab bawah. */}
       <MobileNav logo={logo} staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} name={profile.full_name} role={roleLabel} />
 
       <aside className="hidden flex-[0_0_244px] flex-col gap-4 bg-navy-900 px-3.5 py-5 text-[#c5cbd9] md:flex">
@@ -56,7 +56,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-5 sm:px-8 md:pb-12 md:pt-6">{children}</main>
+      <main className="min-w-0 flex-1 px-4 pb-[calc(3rem+env(safe-area-inset-bottom))] pt-5 sm:px-8 md:pb-12 md:pt-6">{children}</main>
     </div>
   )
 }

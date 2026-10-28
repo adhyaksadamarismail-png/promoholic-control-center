@@ -2,15 +2,15 @@
 
 /* Token identitas Promo.Holic: navy utama, oranye aksen, krem area konten. */
 @theme {
-  --color-navy-900: #14213d;
+  --color-navy-900: #152342;
   --color-navy-800: #1b2a4a;
   --color-navy-700: #24355c;
   --color-navy-100: #e8ecf5;
-  --color-orange-500: #f58220;
+  --color-orange-500: #ff851b;
   --color-orange-700: #b4530a;
   --color-orange-100: #ffebd8;
   --color-cream-50: #fcf9f3;
-  --color-cream-100: #faf5ec;
+  --color-cream-100: #faf5eb;
   --color-cream-300: #eadfcb;
   --color-ink-500: #5b6478;
   --color-success-700: #0e6245;

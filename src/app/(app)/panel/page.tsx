@@ -2,6 +2,8 @@ import { createSessionClient } from '@/lib/supabase/server'
 import { Card, Note, PageHeader, Table, Tabs } from '@/components/ui'
 import { jktDate, jktTime } from '@/lib/format'
 import { PanelForm } from './panel-form'
+import { BulkRestock } from '@/components/bulk-restock'
+import { BatchHistory } from '@/components/batch-history'
 import { ExtraRestockForm } from './extra-form'
 import { accountKey } from '@/lib/inventory'
 
@@ -11,7 +13,7 @@ type Item = { type: string; qty: number }
 
 export default async function PanelPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const m = (await searchParams).mode
-  const mode = m === 'add' || m === 'extra' ? m : 'new'
+  const mode = m === 'add' || m === 'extra' || m === 'bulk' ? m : 'new'
   const supabase = await createSessionClient()
   const { data: allowed } = await supabase.rpc('can_restock_panel')
 
@@ -58,10 +60,16 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
           { key: 'new', label: 'Akun baru', href: '/panel' },
           { key: 'add', label: 'Tambah voucher ke akun yang ada', href: '/panel?mode=add' },
           { key: 'extra', label: 'Restock Baperan saja', href: '/panel?mode=extra' },
+          { key: 'bulk', label: 'Bulk Restock', href: '/panel?mode=bulk' },
         ]}
         active={mode}
       />
-      {mode === 'extra' ? (
+      {mode === 'bulk' ? (
+        <>
+          <BulkRestock source="panel" brands={brands ?? []} />
+          <BatchHistory source="panel" />
+        </>
+      ) : mode === 'extra' ? (
         <ExtraRestockForm
           brands={brands ?? []}
           types={(types ?? []).filter((t) => t.grp === 'extra' && t.auto_per_account === null)}
