@@ -205,7 +205,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Card title="Harga modal">
+        <Card title="Harga modal" aside={<Link href="/finance/brand-costs" className="text-sm font-semibold text-orange-700">Modal per Brand</Link>}>
           <p className="text-sm">
             1 kredit = <b>{creditNow ? rupiah(creditNow.rp_per_credit) : 'belum dikonfigurasi'}</b>
             {creditNow && ` sejak ${jktDateTime(creditNow.effective_from)}`}
@@ -226,7 +226,14 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
               return (
                 <tr key={b.id}>
                   <td className="font-semibold">{b.name}</td>
-                  <td>{bc ? BASIS[bc.basis] : <Pill tone="warning">Belum dikonfigurasi</Pill>}</td>
+                  <td>
+                    {bc ? BASIS[bc.basis] : (
+                      <Link href={`/finance/brand-costs?brand=${b.id}#brand-${b.id}`} className="inline-flex min-h-8 items-center gap-1.5">
+                        <Pill tone="warning">Belum dikonfigurasi</Pill>
+                        <span className="text-xs font-semibold text-orange-700">Konfigurasi</span>
+                      </Link>
+                    )}
+                  </td>
                   <td>
                     {bc?.basis === 'credit_per_account' && `${Number(bc.credits_per_account)} kredit${creditNow ? ` = ${rupiah(Number(bc.credits_per_account) * creditNow.rp_per_credit)}` : ''}`}
                     {bc?.basis === 'rp_per_voucher' && `${rupiah(bc.rp_per_voucher)} / voucher`}
@@ -238,6 +245,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
             })}
           </Table>
           <p className="text-xs text-ink-500">Setiap order menyimpan salinan harga modal saat dicatat. Perubahan tidak menghitung ulang order lama.</p>
+          <Link href="/finance/brand-costs" className="flex min-h-11 items-center justify-center rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">Atur modal per brand</Link>
         </Card>
 
         <Card title="Metode alokasi modal per voucher">

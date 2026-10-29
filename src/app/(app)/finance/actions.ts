@@ -3,8 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { assertOwner } from '@/lib/auth'
-import { dbMessage, int, str, type ActionResult } from '@/lib/rpc'
-import { isYmd } from '@/lib/format'
+import { callRpc, dbMessage, int, str, type ActionResult } from '@/lib/rpc'
+import { isYmd, jktDate } from '@/lib/format'
 
 // Tabel keuangan & konfigurasi modal hanya bisa ditambah owner (RLS insert). Baris lama tidak diubah.
 async function insert(table: string, row: Record<string, unknown>, success: string): Promise<ActionResult> {
@@ -40,6 +40,33 @@ export async function scheduleCreditPrice(_: ActionResult | null, fd: FormData):
   if (!price || price <= 0 || !isYmd(from)) return { ok: false, message: 'Isi harga per kredit dan tanggal berlaku.' }
   return insert('credit_prices', { rp_per_credit: price, effective_from: `${from}T00:00:00+07:00` },
     'Harga kredit baru dijadwalkan. Order lama tetap memakai harga saat dicatat.')
+}
+
+/** Versi modal baru per brand. Nilai hanya dari isian owner; validasi & audit diulang di set_brand_cost. */
+export async function setBrandCost(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const brand = str(fd, 'brand')
+  const basis = z.enum(['credit_per_account', 'rp_per_voucher', 'free']).safeParse(str(fd, 'basis'))
+  const from = str(fd, 'from')
+  if (!/^[A-Z]{2}$/.test(brand)) return { ok: false, message: 'Brand tidak valid.' }
+  if (!basis.success) return { ok: false, message: 'Pilih metode biaya.' }
+  if (!isYmd(from) || from < jktDate()) return { ok: false, message: 'Tanggal mulai berlaku tidak boleh di masa lalu.' }
+  let credits: number | null = null
+  let rp: number | null = null
+  if (basis.data === 'credit_per_account') {
+    credits = Number(str(fd, 'credits').replace(',', '.'))
+    if (!Number.isFinite(credits) || credits <= 0 || credits >= 1000 || !/^\d+(\.\d{1,3})?$/.test(String(credits)))
+      return { ok: false, message: 'Isi jumlah kredit per akun (lebih dari 0, maks. 3 angka desimal).' }
+  } else if (basis.data === 'rp_per_voucher') {
+    rp = int(fd, 'rp')
+    if (!rp || rp <= 0) return { ok: false, message: 'Isi biaya per voucher dalam Rupiah (lebih dari 0).' }
+  } else if (str(fd, 'confirm_free') !== 'on') {
+    return { ok: false, message: 'Centang konfirmasi bahwa akun brand ini memang gratis.' }
+  }
+  const r = await callRpc('set_brand_cost', {
+    p_brand: brand, p_basis: basis.data, p_credits: credits, p_rp: rp, p_effective_from: from, p_note: str(fd, 'note') || null,
+  }, '', ['/finance', '/finance/brand-costs', '/panel', '/vm', '/settings/vouchers'])
+  if (!r.ok) return r
+  return { ok: true, message: from === jktDate() ? 'Modal brand tersimpan dan berlaku mulai hari ini.' : `Modal brand tersimpan, berlaku mulai ${from}.` }
 }
 
 export async function setAllocation(_: ActionResult | null, fd: FormData): Promise<ActionResult> {

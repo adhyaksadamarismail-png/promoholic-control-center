@@ -127,6 +127,37 @@ await as('rani', async () => {
   const v = await q(`select count(*)::int n, count(*) filter (where allocated_cost is null)::int unknown from public.vouchers where account_id = $1`, [a[0].id])
   v[0].n === 2 && v[0].unknown === 2 ? ok('modal brand belum dikonfigurasi: voucher "belum diisi" (NULL), bukan Rp0') : bad('modal NULL', JSON.stringify(v[0]))
 })
+console.log('\nModal per brand (set_brand_cost)')
+await expectFail('akun baru ditolak selama modal brand belum dikonfigurasi', () => as('rani', () =>
+  q(`select public.panel_add_account('ZZ','ZZ-0002',null,null,'{"X":1}',gen_random_uuid())`)), 'Modal brand')
+const today = (await q(`select public.jkt_date(now())::text d`))[0].d
+await expectFail('staf tidak bisa mengatur modal brand', () => as('rani', () =>
+  q(`select public.set_brand_cost('ZZ','rp_per_voucher',null,1500,$1::date)`, [today])), 'khusus owner')
+await expectFail('insert langsung ke brand_costs ditolak (wajib lewat fungsi + audit)', () => as('owner', () =>
+  q(`insert into public.brand_costs (brand_id, basis, rp_per_voucher, effective_from) values ('ZZ','rp_per_voucher',1500,now())`)), 'permission denied')
+await expectFail('tanggal mulai di masa lalu ditolak', () => as('owner', () =>
+  q(`select public.set_brand_cost('ZZ','rp_per_voucher',null,1500,$1::date - 1)`, [today])), 'masa lalu')
+await expectFail('kredit per akun 0 ditolak', () => as('owner', () =>
+  q(`select public.set_brand_cost('ZZ','credit_per_account',0,null,$1::date)`, [today])), 'jumlah kredit')
+await expectFail('Rupiah per voucher tanpa nilai ditolak', () => as('owner', () =>
+  q(`select public.set_brand_cost('ZZ','rp_per_voucher',null,null,$1::date)`, [today])), 'per voucher')
+await expectFail('Gratis dengan nominal ditolak', () => as('owner', () =>
+  q(`select public.set_brand_cost('ZZ','free',null,1500,$1::date)`, [today])), 'Gratis')
+await as('owner', async () => {
+  await expectOk('owner mengatur Rp1.500 per voucher mulai hari ini', () =>
+    q(`select public.set_brand_cost('ZZ','rp_per_voucher',null,1500,$1::date,'uji')`, [today]))
+  const a = await q(`select after from public.audit_log where action = 'brand_cost.set' order by id desc limit 1`)
+  a[0]?.after.rp_per_voucher === 1500 && a[0]?.after.note === 'uji' ? ok('perubahan modal tercatat di audit log') : bad('audit modal', JSON.stringify(a[0]))
+  await expectFail('versi kedua di tanggal yang sama ditolak', () =>
+    q(`select public.set_brand_cost('ZZ','free',null,null,$1::date)`, [today]), 'tanggal mulai berlaku yang sama')
+  await expectOk('owner menjadwalkan versi berikutnya', () => q(`select public.set_brand_cost('ZZ','free',null,null,$1::date + 7)`, [today]))
+})
+await as('rani', async () => {
+  await expectOk('setelah modal diatur, akun baru tersimpan', () =>
+    q(`select public.panel_add_account('ZZ','ZZ-0002',null,null,'{"X":2}',gen_random_uuid())`))
+  const v = await q(`select allocated_cost from public.vouchers v join public.account_list a on a.id = v.account_id where a.account_code = 'ZZ-0002'`)
+  v.length === 2 && v.every((x) => Number(x.allocated_cost) === 1500) ? ok('restock memakai modal yang berlaku (Rp1.500 per voucher), bukan versi terjadwal') : bad('modal restock', JSON.stringify(v))
+})
 await expectFail('staf tidak menambah stok akun VM', () => as('rani', async () => {
   const a = await q(`select id from public.account_list where account_code = 'KK-0192'`)
   return q(`select public.add_stock($1, '[{"type":"BP","qty":1}]', gen_random_uuid())`, [a[0].id])

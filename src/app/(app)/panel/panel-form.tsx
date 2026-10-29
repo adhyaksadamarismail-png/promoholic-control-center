@@ -31,8 +31,9 @@ export function PanelForm(props: {
   maxSlots: Record<string, number> // `${accountId}|${typeId}` → slot tertinggi
   costs: Cost[]
   creditPrice: number | null
+  isOwner: boolean
 }) {
-  const { mode, brands, types, versions, accounts, existingKeys, maxSlots, costs, creditPrice } = props
+  const { mode, brands, types, versions, accounts, existingKeys, maxSlots, costs, creditPrice, isOwner } = props
   const hydrated = useHydrated()
   const [state, action, pending] = useActionState(mode === 'new' ? panelAddAccount : panelAddStock, null)
   const [ack, setAck] = useState<typeof state>(null)
@@ -63,8 +64,13 @@ export function PanelForm(props: {
   ]
   const cost = costs.find((c) => c.brand_id === brandId)
   const mainCount = preview.filter((p) => p.t.grp === 'main').length
+  // Akun baru butuh modal brand (dan harga kredit untuk metode kredit); server menolak tanpa itu.
+  const costBlock = mode !== 'new' || !brandId ? null : !cost ? 'brand' : cost.basis === 'credit_per_account' && !creditPrice ? 'credit' : null
+  const brandName = brands.find((b) => b.id === brandId)?.name ?? brandId
   const modalNote = !cost
-    ? 'Modal brand belum dikonfigurasi owner — server akan menolak.'
+    ? mode === 'new'
+      ? 'Modal brand belum dikonfigurasi.'
+      : 'Modal brand belum dikonfigurasi: voucher tambahan dicatat "modal belum diisi" dan order-nya ditandai untuk ditinjau.'
     : cost.basis === 'free'
       ? 'Akun gratis: modal Rp0.'
       : cost.basis === 'rp_per_voucher'
@@ -96,7 +102,7 @@ export function PanelForm(props: {
       </div>
     )
 
-  const disabled = pending || preview.length === 0 || (mode === 'new' ? !codeOk || duplicate : !account)
+  const disabled = pending || preview.length === 0 || !!costBlock || (mode === 'new' ? !codeOk || duplicate : !account)
 
   return (
     <form
@@ -205,6 +211,24 @@ export function PanelForm(props: {
           </div>
         )}
 
+        {costBlock && (
+          <div role="status" className="flex flex-col items-start gap-2 rounded-lg bg-warning-100 px-3 py-2.5 text-sm text-warning-700">
+            <span>
+              {costBlock === 'brand'
+                ? `Modal brand ${brandName} belum dikonfigurasi, jadi akun baru belum bisa disimpan.`
+                : `${brandName} memakai kredit per akun, tetapi harga kredit belum dikonfigurasi.`}
+              {!isOwner && ' Minta owner mengaturnya di Keuangan → Modal per Brand.'}
+            </span>
+            {isOwner && (
+              <Link
+                href={costBlock === 'brand' ? `/finance/brand-costs?brand=${brandId}#brand-${brandId}` : '/finance'}
+                className="flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-navy-900 px-4 font-semibold text-white"
+              >
+                {costBlock === 'brand' ? 'Konfigurasi modal brand' : 'Atur harga kredit'}
+              </Link>
+            )}
+          </div>
+        )}
         {shown && !shown.ok && <p role="alert" className="rounded-lg bg-danger-100 px-3 py-2 text-sm text-[#7a1a12]">{shown.message}</p>}
         <div className="flex flex-wrap gap-2">
           <button type="submit" disabled={disabled} className="min-h-12 flex-1 rounded-lg bg-orange-500 px-5 font-semibold text-navy-900 disabled:bg-[#e7e2d8] disabled:text-[#6e7689]">

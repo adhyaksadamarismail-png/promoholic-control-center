@@ -40,6 +40,22 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
     )
   }
 
+  // Brand VM yang belum punya modal berlaku: akun baru VM ditolak server sampai owner mengaturnya.
+  const nowIso = new Date().toISOString()
+  const [{ data: vmBrands }, { data: vmCosts }] = await Promise.all([
+    supabase.from('brands').select('id, name').eq('vm_allowed', true).order('id'),
+    supabase.from('brand_costs').select('brand_id').lte('effective_from', nowIso),
+  ])
+  const costMissing = (vmBrands ?? []).filter((b) => !(vmCosts ?? []).some((c) => c.brand_id === b.id))
+  const costNote = costMissing.length > 0 && (
+    <div role="status" className="flex flex-col gap-2 rounded-lg bg-warning-100 px-3 py-2.5 text-sm text-warning-700 sm:flex-row sm:items-center sm:justify-between">
+      <span>Modal brand {costMissing.map((b) => b.name).join(', ')} belum dikonfigurasi, jadi akun baru VM belum bisa disimpan.</span>
+      <Link href={`/finance/brand-costs?brand=${costMissing[0].id}#brand-${costMissing[0].id}`} className="flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-navy-900 px-4 font-semibold text-white">
+        Konfigurasi modal brand
+      </Link>
+    </div>
+  )
+
   const tabs = (active: string) => (
     <Tabs
       items={[
@@ -54,7 +70,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
       <div className="mx-auto flex max-w-6xl flex-col gap-5">
         <PageHeader eyebrow="Khusus owner · input banyak akun sekaligus" title="Virtual Machine" />
         {tabs('bulk')}
-        <BulkRestock source="vm" brands={[]} />
+        <BulkRestock source="vm" brands={vmBrands ?? []} costMissing={costMissing.map((b) => b.id)} isOwner />
         <BatchHistory source="vm" />
       </div>
     )
@@ -185,6 +201,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
 
           {device && (
             <Card title={`Tambah akun ke ${device.name}`}>
+              {costNote}
               <ActionForm action={vmAddAccount} className="grid grid-cols-1 gap-3 sm:grid-cols-2" resultClassName="sm:col-span-2">
                 <input type="hidden" name="device" value={device.id} />
                 <input type="hidden" name="idem" value={randomUUID()} />

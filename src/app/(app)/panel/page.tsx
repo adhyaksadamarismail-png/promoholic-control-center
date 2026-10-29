@@ -15,7 +15,8 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
   const m = (await searchParams).mode
   const mode = m === 'add' || m === 'extra' || m === 'bulk' ? m : 'new'
   const supabase = await createSessionClient()
-  const { data: allowed } = await supabase.rpc('can_restock_panel')
+  const [{ data: allowed }, { data: role }] = await Promise.all([supabase.rpc('can_restock_panel'), supabase.rpc('current_app_role')])
+  const isOwner = role === 'owner'
 
   if (!allowed)
     return (
@@ -66,7 +67,12 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
       />
       {mode === 'bulk' ? (
         <>
-          <BulkRestock source="panel" brands={brands ?? []} />
+          <BulkRestock
+            source="panel"
+            brands={brands ?? []}
+            costMissing={(brands ?? []).filter((b) => !latest.some((c) => c.brand_id === b.id)).map((b) => b.id)}
+            isOwner={isOwner}
+          />
           <BatchHistory source="panel" />
         </>
       ) : mode === 'extra' ? (
@@ -89,6 +95,7 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
         maxSlots={maxSlots}
         costs={latest}
         creditPrice={credit?.rp_per_credit ?? null}
+        isOwner={isOwner}
       />
       )}
 

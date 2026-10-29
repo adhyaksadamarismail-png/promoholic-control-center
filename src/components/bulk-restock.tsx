@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useRef, useState, useTransition } from 'react'
 import { useHydrated } from '@/components/action-form'
 import { BULK_EXAMPLE, parseBulk, type BulkMode, type BulkRow, type BulkSource } from '@/lib/bulk'
@@ -32,7 +33,12 @@ const forServer = (r: BulkRow) => ({ line: r.line, device: r.device, code: r.cod
 const rp = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
 /** Bulk Restock: tempel teks / unggah CSV → preview tervalidasi server → konfirmasi (satu batch atomik). */
-export function BulkRestock({ source, brands }: { source: BulkSource; brands: Brand[] }) {
+export function BulkRestock({ source, brands, costMissing = [], isOwner = false }: {
+  source: BulkSource
+  brands: Brand[]
+  costMissing?: string[] // brand yang belum punya modal berlaku (Panel: semua brand; VM: brand VM)
+  isOwner?: boolean
+}) {
   const hydrated = useHydrated()
   const [mode, setMode] = useState<BulkMode>('new_account')
   const [brand, setBrand] = useState(source === 'panel' ? (brands.find((b) => b.id === 'KK')?.id ?? brands[0]?.id ?? '') : '')
@@ -49,6 +55,9 @@ export function BulkRestock({ source, brands }: { source: BulkSource; brands: Br
   const fileRef = useRef<HTMLInputElement>(null)
   const sending = useRef(false) // cegah klik ganda sebelum state 'busy' sempat aktif
 
+  // Panel: brand pilihan; VM: brand ditentukan per baris, jadi semua brand VM tanpa modal ditampilkan.
+  const blockedBrands = (source === 'panel' ? costMissing.filter((id) => id === brand) : costMissing)
+    .map((id) => brands.find((b) => b.id === id) ?? { id, name: id })
   const invalidate = () => { setChecked(null); setMessage(null) }
   function reset() {
     setText(''); setFileName(''); setParsed([]); setChecked(null); setMessage(null); setResult(null)
@@ -194,6 +203,19 @@ export function BulkRestock({ source, brands }: { source: BulkSource; brands: Br
         </div>
       </fieldset>
 
+      {mode === 'new_account' && blockedBrands.length > 0 && (
+        <div role="status" className="flex flex-col gap-2 rounded-lg bg-warning-100 px-3 py-2.5 text-sm text-warning-700 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Modal brand {blockedBrands.map((b) => b.name).join(', ')} belum dikonfigurasi, jadi batch akun baru akan ditolak saat disimpan.
+            {!isOwner && ' Minta owner mengaturnya di Keuangan → Modal per Brand.'}
+          </span>
+          {isOwner && (
+            <Link href={`/finance/brand-costs?brand=${blockedBrands[0].id}#brand-${blockedBrands[0].id}`} className="flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-navy-900 px-4 font-semibold text-white">
+              Konfigurasi modal brand
+            </Link>
+          )}
+        </div>
+      )}
       {message && <p role="alert" className={`rounded-lg px-3 py-2 text-sm ${message.ok ? 'bg-success-100 text-success-700' : 'bg-danger-100 text-[#7a1a12]'}`}>{message.text}</p>}
 
       {checked && summary && (
@@ -252,7 +274,7 @@ export function BulkRestock({ source, brands }: { source: BulkSource; brands: Br
           </div>
           <p className="text-xs text-ink-500">
             Hanya baris valid yang disimpan, dalam satu batch atomik: bila satu baris gagal saat disimpan, seluruh batch dibatalkan.
-            Modal dihitung server dari konfigurasi harga yang berlaku (mis. Kopi Kenangan 1 kredit per akun, bukan per voucher).
+            Modal dihitung server dari konfigurasi Modal per Brand yang berlaku saat disimpan.
           </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={confirm} disabled={busy || !valid.length} className="min-h-12 rounded-lg bg-orange-500 px-5 font-semibold text-navy-900 disabled:bg-[#e7e2d8] disabled:text-[#6e7689]">
