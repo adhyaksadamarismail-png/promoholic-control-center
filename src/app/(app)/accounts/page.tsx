@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
-import { PageHeader, Pill, Table, inputCls } from '@/components/ui'
+import { Note, PageHeader, Pill, Table, inputCls } from '@/components/ui'
 import { dateLabel, jktDate } from '@/lib/format'
 import { ACCOUNT_STATE, VOUCHER_STATUS } from '@/lib/inventory'
 import { loadAccounts, type AccountFilter } from '@/lib/accounts'
+import { BulkDeleteProvider, RowCheck } from './bulk-delete'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,14 +17,18 @@ const CHIP: Record<string, string> = {
   broken: 'bg-danger-100 text-danger-700 border-danger-700/30',
 }
 
-export default async function AccountsPage({ searchParams }: { searchParams: Promise<AccountFilter> }) {
-  const f = await searchParams
+export default async function AccountsPage({ searchParams }: { searchParams: Promise<AccountFilter & { deleted?: string }> }) {
+  const { deleted, ...f } = await searchParams
   const viewer = await getViewer()
   if (!viewer) redirect('/login')
   const { supabase } = viewer
   const role = viewer.profile.role
   const { brands, types, rows, filtered, incomplete } = await loadAccounts(supabase, f)
   const typeCode = (id: string) => types.find((t) => t.id === id)?.code ?? '?'
+  const isOwner = role === 'owner'
+  // Owner: daftar dibungkus pilihan hapus massal (checkbox per baris). Staf: daftar biasa.
+  const Selectable = ({ children }: { children: React.ReactNode }) =>
+    isOwner ? <BulkDeleteProvider rows={filtered.map((r) => ({ id: r.id, code: r.account_code }))}>{children}</BulkDeleteProvider> : <>{children}</>
   const exportQs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString()
 
   return (
@@ -33,6 +38,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           Export CSV
         </a>
       </PageHeader>
+      {deleted && <Note>Akun {deleted} dihapus beserta vouchernya. Tindakan tercatat di audit log.</Note>}
 
       <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-5 md:overflow-visible md:px-0 md:pb-0">
         {brands.map((b) => {
@@ -93,6 +99,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         ))}
       </div>
 
+      <Selectable>
       {/* HP: daftar kartu agar ID akun, voucher, dan status terlihat tanpa menggeser tabel. */}
       <ul className="flex flex-col gap-2 md:hidden">
         {filtered.map((r) => {
@@ -101,8 +108,9 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           const st = ACCOUNT_STATE[r.state]
           const expired = r.active_until && r.active_until < jktDate()
           return (
-            <li key={r.id}>
-              <Link href={`/accounts/${r.id}`} className="flex flex-col gap-2 rounded-xl border border-cream-300 bg-white p-3.5">
+            <li key={r.id} className="flex items-center gap-2">
+              <RowCheck id={r.id} code={r.account_code} />
+              <Link href={`/accounts/${r.id}`} className="flex min-w-0 flex-1 flex-col gap-2 rounded-xl border border-cream-300 bg-white p-3.5">
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-mono font-semibold">{r.account_code}</span>
                   <Pill tone={st.tone}>{st.label}</Pill>
@@ -128,7 +136,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
       </ul>
 
       <section className="hidden rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 md:block">
-        <Table head={['ID akun', 'Brand', 'Sumber', 'Nomor akun', 'Masuk', 'Aktif s/d', 'Voucher utama', 'Tambahan', 'Status', '']} empty="Tidak ada akun yang cocok.">
+        <Table head={[...(isOwner ? ['Pilih'] : []), 'ID akun', 'Brand', 'Sumber', 'Nomor akun', 'Masuk', 'Aktif s/d', 'Voucher utama', 'Tambahan', 'Status', '']} empty="Tidak ada akun yang cocok.">
           {filtered.map((r) => {
             const main = r.vouchers.filter((v) => v.grp === 'main')
             const extra = r.vouchers.filter((v) => v.grp === 'extra')
@@ -136,6 +144,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             const expired = r.active_until && r.active_until < jktDate()
             return (
               <tr key={r.id}>
+                {isOwner && <td><RowCheck id={r.id} code={r.account_code} /></td>}
                 <td className="whitespace-nowrap font-mono text-[13px] font-semibold">
                   <Link href={`/accounts/${r.id}`}>{r.account_code}</Link>
                 </td>
@@ -161,6 +170,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           })}
         </Table>
       </section>
+      </Selectable>
       <p className="text-xs text-ink-500">
           Menampilkan {filtered.length} dari {rows.length} akun. Nomor akun hanya ada untuk akun dari Virtual Machine. Stok dihitung dari data yang dicatat di
           aplikasi ini, bukan disinkronkan dari aplikasi brand.

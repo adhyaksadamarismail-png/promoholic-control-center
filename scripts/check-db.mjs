@@ -333,6 +333,31 @@ await as('owner', async () => {
   await expectOk('owner mengembalikan FR D25 ke diisi manual', () => q(`select public.set_voucher_type_auto($1, null)`, [fr]))
 })
 
+console.log('\nHapus akun')
+const accId = async (code) => (await q(`select id from public.accounts where account_code = $1`, [code]))[0]?.id
+await as('owner', () => q(`select public.panel_add_account('KK','880001',null,null,'{"BP":1}',gen_random_uuid()), public.panel_add_account('KK','880002',null,null,'{}',gen_random_uuid())`))
+await db.exec('reset role')
+const [safe1, safe2, withTrx] = [await accId('880001'), await accId('880002'), await accId('KK-0192')]
+await expectFail('staf tidak bisa menghapus akun', () => as('rani', () => q(`select public.delete_accounts(array[$1]::uuid[])`, [safe1])), 'khusus owner')
+await as('owner', async () => {
+  const r = (await q(`select public.delete_accounts(array[$1]::uuid[]) r`, [withTrx]))[0].r
+  r.deleted === 0 && r.results[0].reason.includes('transaksi') ? ok('akun dengan transaksi ditolak: ' + r.results[0].reason) : bad('hapus akun bertransaksi', JSON.stringify(r))
+  const one = (await q(`select public.delete_accounts(array[$1]::uuid[]) r`, [safe1]))[0].r
+  one.deleted === 1 && one.results[0].vouchers === 4 ? ok('akun aman dihapus beserta 4 vouchernya') : bad('hapus satu akun', JSON.stringify(one))
+  const bulk = (await q(`select public.delete_accounts(array[$1, $2, gen_random_uuid()]::uuid[]) r`, [safe2, withTrx]))[0].r
+  bulk.deleted === 1 && bulk.skipped === 2 && bulk.results.filter((x) => !x.ok).every((x) => x.reason)
+    ? ok('bulk: 1 dihapus, 2 dilewati dengan alasan') : bad('bulk delete', JSON.stringify(bulk))
+  const a = await q(`select action, after from public.audit_log where action in ('account.delete','account.bulk_delete') order by id`)
+  a.length === 3 && a[2].action === 'account.bulk_delete' && a[2].after.deleted_count === 1 && a[2].after.skipped_count === 2
+    ? ok('satu entri audit per operasi (ringkasan jumlah dihapus & dilewati)') : bad('audit hapus', JSON.stringify(a.map((x) => x.action)))
+})
+await db.exec('reset role')
+const left = await q(`select (select count(*)::int from public.accounts where account_code in ('880001','880002')) acc,
+  (select count(*)::int from public.vouchers where code like 'V-KK88000%') v, (select count(*)::int from public.orders where account_id = $1) trx`, [withTrx])
+left[0].acc === 0 && left[0].v === 0 && left[0].trx > 0 ? ok('akun & voucher terhapus; order akun bertransaksi tetap utuh') : bad('sisa data', JSON.stringify(left[0]))
+await expectFail('riwayat stok selain milik akun yang dihapus tetap append-only', () =>
+  q(`delete from public.stock_ledger where id = (select id from public.stock_ledger where reason = 'restock' limit 1)`), 'append-only')
+
 console.log('\nOrder & voucher')
 const vid = async (code) => (await q(`select id from public.vouchers where code = $1`, [code]))[0].id
 await expectFail('voucher yang sudah terpakai tidak bisa dipakai lagi', () => as('rani', async () =>

@@ -6,7 +6,7 @@ import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Table, inputCls } from '@/components/ui'
 import { dateLabel, jktDate, jktDateTime } from '@/lib/format'
 import { ACCOUNT_STATE, LEDGER_REASON, VOUCHER_STATUS, accountState, currentVersion, ruleLabel, type Rule, type VoucherStatus } from '@/lib/inventory'
-import { cancelUseNow, requestStockAdjust, requestUseCancel } from './actions'
+import { cancelUseNow, deleteAccount, requestStockAdjust, requestUseCancel } from './actions'
 import { UseVoucherForm } from './use-voucher'
 
 export const dynamic = 'force-dynamic'
@@ -190,6 +190,27 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
           <p className="text-sm text-ink-500">Akun ini tidak memiliki voucher tambahan. Voucher tambahan hanya dicatat bila memang tersedia di akun.</p>
         )}
       </Card>
+
+      {isOwner && (
+        <Card title="Hapus akun">
+          <p className="text-sm text-ink-500">
+            Hanya untuk akun yang salah input dan belum pernah dipakai. Akun yang punya transaksi atau histori stok selain restock
+            ditolak agar histori keuangan tetap utuh. Voucher, restock, dan riwayat restock akun ini ikut terhapus; tindakan dicatat di audit log.
+          </p>
+          <details className="text-sm">
+            <summary className="cursor-pointer font-semibold text-danger-700">Hapus akun {account.account_code}</summary>
+            <ActionForm action={deleteAccount} className="mt-2 flex max-w-md flex-col gap-2"
+              confirm={`Hapus akun ${account.account_code} beserta vouchernya? Tindakan ini tidak bisa dibatalkan.`}>
+              <input type="hidden" name="account" value={account.id} />
+              <label className="flex flex-col gap-1.5 text-sm font-semibold">
+                Ketik ID akun untuk konfirmasi
+                <input name="confirm_code" required autoComplete="off" placeholder={account.account_code} className={`${inputCls} font-mono`} />
+              </label>
+              <SubmitButton variant="danger" pendingText="Menghapus…">Hapus akun</SubmitButton>
+            </ActionForm>
+          </details>
+        </Card>
+      )}
 
       <Card title="Riwayat akun">
         <Table head={['Waktu', 'Peristiwa', 'Voucher', 'Stok', 'Oleh', 'Referensi']} empty="Belum ada riwayat.">
