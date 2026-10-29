@@ -103,3 +103,20 @@ export function bonusRuleLabel(rule: BonusRule | null) {
   if (rule.method === 'per_net_hour') return `Rp${(rule.per_hour_rp ?? 0).toLocaleString('id-ID')} per jam bersih`
   return `siang Rp${(rule.day_per_hour_rp ?? 0).toLocaleString('id-ID')}/jam · malam Rp${(rule.night_per_hour_rp ?? 0).toLocaleString('id-ID')}/jam`
 }
+
+export type ScheduleRow = { admin_id: string; weekday: number; start_time: string; end_time: string; effective_from: string; effective_to: string | null }
+
+/**
+ * Hari kerja dari jadwal reguler (minggu yang dimulai Senin `week`) yang belum punya shift reguler.
+ * Mengikuti aturan generate_regular_shifts: hanya tanggal di dalam masa berlaku versi jadwal.
+ */
+export function missingRegularShifts(templates: ScheduleRow[], shifts: { admin_id: string; kind: string; shift_date: string }[], week: string) {
+  const have = new Set(shifts.filter((s) => s.kind === 'regular').map((s) => `${s.admin_id}|${s.shift_date}`))
+  return templates
+    .map((t) => {
+      const d = new Date(`${week}T12:00:00Z`)
+      d.setUTCDate(d.getUTCDate() + t.weekday - 1)
+      return { ...t, date: d.toISOString().slice(0, 10) }
+    })
+    .filter((t) => t.date >= t.effective_from && (!t.effective_to || t.date <= t.effective_to) && !have.has(`${t.admin_id}|${t.date}`))
+}

@@ -10,9 +10,11 @@ import {
   breakMinutes,
   effectiveEvents,
   firstOf,
+  missingRegularShifts,
   netMinutes,
   type AttendanceEvent,
   type AttendanceKind,
+  type ScheduleRow,
 } from '@/lib/attendance'
 import {
   addBonusRule,
@@ -52,20 +54,34 @@ const staffOf = (profiles: Profile[]) => profiles.filter((p) => p.role === 'staf
 
 /* ───────────── Absensi ───────────── */
 export async function AttendanceTab({ supabase, week, profiles }: Props) {
-  const { data } = await supabase
+  const [{ data }, { data: templates }] = await Promise.all([
+    supabase
     .from('shifts')
     .select('id, code, admin_id, kind, shift_date, planned_start, planned_end, status, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason)')
     .gte('shift_date', week)
     .lte('shift_date', addDays(week, 6))
-    .order('planned_start')
+    .order('planned_start'),
+    supabase.from('schedule_templates').select('admin_id, weekday, start_time, end_time, effective_from, effective_to')
+      .lte('effective_from', addDays(week, 6)).or(`effective_to.is.null,effective_to.gte.${week}`),
+  ])
   const shifts = (data ?? []) as {
     id: string; code: string; admin_id: string; kind: string; shift_date: string; planned_start: string; planned_end: string
     status: string; needs_review: boolean; review_reasons: string[]; attendance_events: AttendanceEvent[]
   }[]
   const kinds: AttendanceKind[] = ['clock_in', 'break_start', 'break_end', 'clock_out']
+  // Jadwal reguler staf aktif yang belum menjadi shift di minggu ini (shift hanya dibuat lewat tombol / simpan jadwal).
+  const activeStaff = new Set(staffOf(profiles).filter((p) => p.is_active).map((p) => p.id))
+  const missing = missingRegularShifts(((templates ?? []) as ScheduleRow[]).filter((t) => activeStaff.has(t.admin_id)), shifts, week)
 
   return (
     <>
+      {missing.length > 0 && (
+        <Note tone="warning">
+          {missing.length} shift reguler dari jadwal belum dibuat untuk minggu {dateLabel(week)} – {dateLabel(addDays(week, 6))} (
+          {[...new Set(missing.map((m) => nameOf(profiles, m.admin_id)))].join(', ')}). Staf tidak melihat jadwalnya sampai shift dibuat:
+          tekan &quot;Buat shift reguler minggu ini&quot;.
+        </Note>
+      )}
       <div className="flex flex-wrap gap-3">
         <ActionForm action={generateWeek} className="flex flex-col gap-2">
           <input type="hidden" name="week" value={week} />

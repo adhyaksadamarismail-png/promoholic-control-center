@@ -14,6 +14,7 @@ import {
   estimateBonus,
   firstOf,
   breakMinutes,
+  missingRegularShifts,
   netMinutes,
   nextActions,
   type AttendanceEvent,
@@ -69,7 +70,7 @@ export default async function AttendancePage() {
   const week = weekStart(today)
   const nowIso = new Date().toISOString()
 
-  const [{ data: rows }, { data: allowance }, { data: bonus }, { data: payrolls }, { data: pending }] = await Promise.all([
+  const [{ data: rows }, { data: allowance }, { data: bonus }, { data: payrolls }, { data: pending }, { data: schedule }] = await Promise.all([
     supabase
       .from('shifts')
       .select(
@@ -83,6 +84,9 @@ export default async function AttendancePage() {
     supabase.from('bonus_rules').select('method, fixed_rp, per_hour_rp, day_per_hour_rp, night_per_hour_rp').lte('effective_from', nowIso).order('effective_from', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('weekly_payrolls').select('id, period_start, period_end, status, approved_total, payouts(code, paid_at, amount)').eq('admin_id', me).order('period_start', { ascending: false }).limit(4),
     supabase.from('approval_requests').select('id, kind, target_id, reason, requested_at').eq('requested_by', me).eq('status', 'pending'),
+    // RLS: staf hanya membaca jadwal reguler miliknya.
+    supabase.from('schedule_templates').select('admin_id, weekday, start_time, end_time, effective_from, effective_to')
+      .eq('admin_id', me).lte('effective_from', addDays(today, 1)).or(`effective_to.is.null,effective_to.gte.${today}`),
   ])
 
   const shifts = ((rows ?? []) as unknown as Shift[]).map((s) => ({
@@ -100,6 +104,12 @@ export default async function AttendancePage() {
     )
     .reverse()
   const thisWeek = shifts.filter((s) => s.shift_date >= week && s.shift_date <= addDays(week, 6))
+  // Jadwal reguler hari ini/besok yang belum dibuat owner sebagai shift: tidak bisa diabsen, jadi diberi tahu dengan jelas.
+  const mine = shifts.map((s) => ({ ...s, admin_id: me }))
+  const unscheduled = [week, addDays(week, 7)]
+    .flatMap((w) => missingRegularShifts(schedule ?? [], mine, w))
+    .filter((m) => m.date === today || m.date === addDays(today, 1))
+    .sort((a, b) => a.date.localeCompare(b.date))
   const history = shifts.filter((s) => !active.includes(s) && Date.parse(s.planned_start) < now)
   const pendingTargets = new Set((pending ?? []).map((p) => p.target_id))
 
@@ -115,7 +125,13 @@ export default async function AttendancePage() {
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
       <PageHeader eyebrow={`${profile.full_name} · ${dateLabel(today, 'long')}`} title="Absensi & Benefit" />
 
-      {!active.length && (
+      {unscheduled.length > 0 && (
+        <Note tone="warning">
+          Jadwal reguler {unscheduled.map((m) => `${m.date === today ? 'hari ini' : 'besok'} ${m.start_time.slice(0, 5)}–${m.end_time.slice(0, 5)}`).join(' dan ')} sudah
+          ada, tetapi shift-nya belum dibuat owner sehingga belum bisa diabsen. Minta owner menekan &quot;Buat shift reguler minggu ini&quot; di Absensi &amp; Staf.
+        </Note>
+      )}
+      {!active.length && !unscheduled.length && (
         <Card>
           <p className="text-sm text-ink-500">Tidak ada shift aktif atau terjadwal dalam 18 jam ke depan.</p>
         </Card>

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { assertOwner } from '@/lib/auth'
 import { callRpc, dbMessage, int, str, type ActionResult } from '@/lib/rpc'
 import { createAdminClient, usernameToEmail } from '@/lib/supabase/server'
-import { isYmd, jktLocalToIso } from '@/lib/format'
+import { addDays, isYmd, jktDate, jktLocalToIso, weekStart } from '@/lib/format'
 
 // Semua aksi di sini juga diperiksa ulang di database (require_owner / RLS insert khusus owner).
 const P = ['/owner/attendance', '/attendance', '/approvals']
@@ -95,10 +95,21 @@ export async function setSchedule(_: ActionResult | null, fd: FormData): Promise
   const end = str(fd, 'end')
   if (!admin.success || !isYmd(from) || !/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end))
     return { ok: false, message: 'Lengkapi staf, hari, jam, dan tanggal berlaku.' }
-  return callRpc('set_schedule', {
+  const saved = await callRpc('set_schedule', {
     p_admin: admin.data, p_weekdays: days, p_start: start, p_end: end,
     p_break: int(fd, 'break') ?? 60, p_effective_from: from, p_note: str(fd, 'note'),
-  }, 'Jadwal baru tersimpan. Versi lama tetap ada di histori.', P)
+  }, '', P)
+  if (!saved.ok) return saved
+  // Shift dibuat dari jadwal lewat generate_regular_shifts (sama dengan tombol "Buat shift reguler minggu ini").
+  // Hanya menambah shift yang belum ada (unik per staf & jam mulai), jadi aman diulang; shift lama tidak berubah.
+  const thisWeek = weekStart(jktDate())
+  let created = 0
+  for (const w of [thisWeek, addDays(thisWeek, 7)]) {
+    const g = await callRpc('generate_regular_shifts', { p_week_start: w }, '', P)
+    if (!g.ok) return { ok: true, message: `Jadwal baru tersimpan, tetapi shift belum dibuat: ${g.message} Tekan "Buat shift reguler minggu ini" di tab Absensi.` }
+    created += Number(g.data ?? 0)
+  }
+  return { ok: true, message: `Jadwal baru tersimpan (versi lama tetap di histori). ${created} shift reguler dibuat untuk minggu ini & minggu depan; yang sudah ada dilewati.` }
 }
 
 export async function addBonusRule(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
