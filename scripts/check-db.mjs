@@ -246,6 +246,9 @@ console.log('\nBulk restock')
     ? ok(`batch ${r1.batch}: 3 akun, 11 voucher, modal Rp12.000 (1 kredit/akun, bukan per voucher)`) : bad('ringkasan batch', JSON.stringify(r1))
   const again = await as('rani', () => q(`select public.bulk_restock('panel','new_account','KK',$1::jsonb,null,null,$2) r`, [rows([{ line: 1, code: '300009', items: {} }]), key]))
   again[0].r.repeated && again[0].r.batch === r1?.batch ? ok('kiriman ganda mengembalikan batch yang sama, tidak menyimpan ulang') : bad('idempotensi batch')
+  const perRow = (r1?.rows ?? []).map((x) => `${x.account_key}:${x.vouchers}`).sort().join(',')
+  perRow === ['300001:3', '300002:5', '3000003:3'].sort().join(',') ? ok('hasil per akun dikembalikan: ' + perRow) : bad('hasil per akun', JSON.stringify(r1?.rows))
+  JSON.stringify(again[0].r.rows) === JSON.stringify(r1?.rows) ? ok('kiriman ganda mengembalikan hasil per akun yang sama') : bad('hasil per akun saat kiriman ganda')
   await as('rani', async () => {
     const r = await expectOk('bulk tambah Baperan ke akun yang ada', () =>
       q(`select public.bulk_restock('panel','add_stock','KK',$1::jsonb,null,null,gen_random_uuid()) r`, [rows([{ line: 1, code: '300001', items: { BP: 3 } }, { line: 2, code: '300002', items: { BP: 1 } }])]))
@@ -283,6 +286,52 @@ console.log('\nBulk restock')
     vis.length && vis.every((x) => x.source === 'panel') ? ok('staf hanya melihat batch Panel, bukan batch VM') : bad('RLS batch', JSON.stringify(vis))
   })
 }
+
+console.log('\nProfil sesi & jumlah otomatis per akun')
+await as('rani', async () => {
+  const p = await q(`select * from public.current_profile()`)
+  p.length === 1 && p[0].id === ids.rani && p[0].role === 'staff' ? ok('current_profile hanya mengembalikan profil sendiri') : bad('current_profile', JSON.stringify(p))
+})
+await as('anon', async () => {
+  const r = await q(`select * from public.current_profile()`).catch((e) => e)
+  r instanceof Error || r.length === 0 ? ok('anon tidak mendapat profil') : bad('current_profile anon', JSON.stringify(r))
+})
+const fr = (await q(`select id from public.voucher_types where brand_id = 'FR' and code = 'D25'`))[0].id
+const kkBp = (await q(`select id from public.voucher_types where brand_id = 'KK' and code = 'BP'`))[0].id
+await expectFail('staf tidak bisa mengubah jumlah otomatis', () => as('rani', () => q(`select public.set_voucher_type_auto($1, 1)`, [fr])), 'khusus owner')
+await expectFail('voucher tambahan (Baperan) tidak bisa dibuat otomatis', () => as('owner', () => q(`select public.set_voucher_type_auto($1, 1)`, [kkBp])), 'hanya untuk voucher utama')
+await expectFail('jumlah otomatis di luar 1–10 ditolak', () => as('owner', () => q(`select public.set_voucher_type_auto($1, 0)`, [fr])), '1–10')
+await as('owner', async () => {
+  await expectOk('owner mengatur FR D25 otomatis 1 per akun', () => q(`select public.set_voucher_type_auto($1, 1)`, [fr]))
+  const a = await q(`select after from public.audit_log where action = 'voucher_type.set_auto' order by id desc limit 1`)
+  a[0]?.after.auto_per_account === 1 ? ok('perubahan jumlah otomatis tercatat di audit log') : bad('audit auto', JSON.stringify(a[0]))
+})
+await as('rani', async () => {
+  await expectOk('ID saja: akun FR baru otomatis mendapat D25', () => q(`select public.panel_add_account('FR','FR-5001',null,null,'{}',gen_random_uuid())`))
+  const v = await q(`select string_agg(code, ',') c from public.vouchers where code like 'V-FR5001-%'`)
+  v[0].c === 'V-FR5001-D25' ? ok('voucher otomatis dari konfigurasi: ' + v[0].c) : bad('auto FR', v[0].c)
+})
+
+console.log('\nTandai dipakai & batalkan pemakaian')
+const usedOrder = await as('rani', async () => {
+  const v = (await q(`select id from public.vouchers where code = 'V-FR5001-D25'`))[0].id
+  const c = (await q(`select public.record_order($1,'Uji','081234567890',null,40000,30000,0,null,null,true,gen_random_uuid()) c`, [v]))[0].c
+  await expectFail('voucher yang sama tidak bisa dipakai dua kali', () =>
+    q(`select public.record_order($1,'Uji 2','081234567891',null,40000,30000,0,null,null,true,gen_random_uuid())`, [v]), 'tidak tersedia')
+  return (await q(`select id from public.orders where code = $1`, [c]))[0].id
+})
+await expectFail('staf tidak bisa membatalkan pemakaian langsung', () => as('rani', () => q(`select public.cancel_order_now($1, 'salah klik')`, [usedOrder])), 'khusus owner')
+await expectFail('pembatalan langsung wajib beralasan', () => as('owner', () => q(`select public.cancel_order_now($1, '')`, [usedOrder])), 'alasan')
+await as('owner', async () => {
+  await expectOk('owner membatalkan pemakaian dengan alasan', () => q(`select public.cancel_order_now($1, 'salah klik')`, [usedOrder]))
+  const r = await q(`select o.status, v.status vstatus, (select status from public.approval_requests where target_id = o.id) req,
+                     (select count(*)::int from public.voucher_usages u where u.order_id = o.id and u.reversed_at is not null) reversed
+                     from public.orders o join public.vouchers v on v.id = o.voucher_id where o.id = $1`, [usedOrder])
+  r[0].status === 'cancelled' && r[0].vstatus === 'available' && r[0].req === 'approved' && r[0].reversed === 1
+    ? ok('order dibatalkan, voucher tersedia lagi, histori pemakaian & persetujuan tetap tercatat') : bad('cancel_order_now', JSON.stringify(r[0]))
+  await expectFail('order yang sudah dibatalkan tidak bisa dibatalkan lagi', () => q(`select public.cancel_order_now($1, 'ulang')`, [usedOrder]), 'terkonfirmasi')
+  await expectOk('owner mengembalikan FR D25 ke diisi manual', () => q(`select public.set_voucher_type_auto($1, null)`, [fr]))
+})
 
 console.log('\nOrder & voucher')
 const vid = async (code) => (await q(`select id from public.vouchers where code = $1`, [code]))[0].id

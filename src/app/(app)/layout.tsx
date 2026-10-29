@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createSessionClient } from '@/lib/supabase/server'
+import { getViewer } from '@/lib/auth'
 import { MobileNav, SideNav } from './nav'
 
 const STAFF_NAV = [
@@ -20,13 +20,10 @@ const OWNER_NAV = [
 ]
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createSessionClient()
-  const { data: auth } = await supabase.auth.getUser()
-  if (!auth.user) redirect('/login')
-  const { data: profile } = await supabase.from('profiles').select('full_name, role, is_active, must_change_password').eq('id', auth.user.id).single()
-  if (!profile?.is_active) redirect('/login')
+  const viewer = await getViewer() // sama dengan yang dipakai halaman: satu pemeriksaan per request
+  if (!viewer) redirect('/login')
+  const { profile, isOwner } = viewer
   if (profile.must_change_password) redirect('/account/password')
-  const isOwner = profile.role === 'owner'
   const roleLabel = isOwner ? 'Owner' : 'Staf'
   const logo = (
     <span className="flex flex-col">

@@ -1,5 +1,7 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { createSessionClient } from '@/lib/supabase/server'
+import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, Table, Tabs, inputCls } from '@/components/ui'
 import { addDays, dateLabel, jktDate, jktDateTime, rupiah, weekStart } from '@/lib/format'
@@ -22,23 +24,24 @@ type Item = { type: string; qty: number }
 export default async function StockPage({ searchParams }: { searchParams: Promise<{ tab?: string; brand?: string }> }) {
   const sp = await searchParams
   const tab = TABS.some((t) => t.key === sp.tab) ? sp.tab! : 'jenis'
-  const supabase = await createSessionClient()
-  const { data: role } = await supabase.rpc('current_app_role')
-  const isOwner = role === 'owner'
-  const brandsRes = await supabase.from('brands').select('id, name').order('name')
-  const brands = brandsRes.data ?? []
-  const brand = brands.some((b) => b.id === sp.brand) ? sp.brand : undefined
+  const viewer = await getViewer()
+  if (!viewer) redirect('/login')
+  const { supabase, isOwner } = viewer
+  // Kode brand divalidasi formatnya saja agar daftar brand tidak perlu ditunggu sebelum query lain; brand asing = hasil kosong.
+  const brand = /^[A-Z]{2}$/.test(sp.brand ?? '') ? sp.brand : undefined
   const weekFrom = `${weekStart(jktDate())}T00:00:00+07:00`
 
   let accQ = supabase.from('account_list').select('id', { count: 'exact', head: true })
   if (brand) accQ = accQ.eq('brand_id', brand)
-  const [summary, { count: weekRestocks }, { data: pendingAdj }, { count: accountCount }] = await Promise.all([
+  const [{ data: brandRows }, summary, { count: weekRestocks }, { data: pendingAdj }, { count: accountCount }] = await Promise.all([
+    supabase.from('brands').select('id, name').order('name'),
     loadTypeSummary(supabase, brand),
     // RLS: staf hanya menghitung restock Panel.
     supabase.from('restocks').select('id', { count: 'exact', head: true }).gte('created_at', weekFrom),
     supabase.from('approval_requests').select('id').eq('kind', 'stock_adjust').eq('status', 'pending'),
     accQ,
   ])
+  const brands = brandRows ?? []
   const sum = (k: 'available' | 'used' | 'reserved' | 'expired' | 'broken') => summary.reduce((a, s) => a + s[k], 0)
   const href = (t: string, b = brand) => `/stock?tab=${t}${b ? `&brand=${b}` : ''}`
 

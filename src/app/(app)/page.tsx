@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { createSessionClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { getViewer } from '@/lib/auth'
 import { Icon, type IconName } from '@/components/icons'
 import { WEEKDAYS, addDays, dateLabel, isYmd, jktDate, jktTime, rupiah, weekStart } from '@/lib/format'
 import { effectiveEvents, firstOf, type AttendanceEvent } from '@/lib/attendance'
@@ -184,9 +185,9 @@ function auditDetail(action: string, after: Record<string, unknown> | null, acto
 }
 
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ day?: string }> }) {
-  const supabase = await createSessionClient()
-  const { data: auth } = await supabase.auth.getUser()
-  const me = auth.user!.id
+  const viewer = await getViewer()
+  if (!viewer) redirect('/login')
+  const { supabase, userId: me, profile, isOwner } = viewer
   const sp = await searchParams
   const today = jktDate()
   const week = weekStart(today)
@@ -197,8 +198,6 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     'id, code, admin_id, kind, shift_date, planned_start, planned_end, status, attendance_events(id, kind, at, corrects_id, correction_reason), benefit_entitlements(benefit_claims(status, voided_at, claimed_at))'
   const orderCols = 'code, sell_price, gross_profit, status, needs_review, created_at'
 
-  const { data: profile } = await supabase.from('profiles').select('full_name, role').eq('id', me).single()
-  const isOwner = profile?.role === 'owner'
 
   // RLS tetap membatasi: staf hanya melihat shift, order, dan klaim miliknya sendiri.
   const shiftQ = supabase.from('shifts').select(shiftCols).gte('shift_date', week).lte('shift_date', addDays(week, 6))
@@ -298,7 +297,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       ]
 
   const dateLong = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'full' }).format(new Date())
-  const firstName = profile?.full_name?.split(' ')[0] ?? ''
+  const firstName = profile.full_name.split(' ')[0] ?? ''
   const dayShifts = shifts.filter((s) => s.shift_date === day && (isOwner || s.admin_id === me))
   const myState = myToday[0] ? shiftState(myToday[0], now) : null
   const pill = (t: Tone) => (t === 'neutral' ? 'bg-[#eef0f4] text-ink-500' : t === 'live' ? 'bg-orange-100 text-orange-700' : TONE[t])

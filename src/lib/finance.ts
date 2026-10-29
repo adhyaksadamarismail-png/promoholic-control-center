@@ -50,6 +50,8 @@ export type Pnl = {
 
 const startIso = (ymd: string) => `${ymd}T00:00:00+07:00`
 const endIso = (ymd: string) => `${addDays(ymd, 1)}T00:00:00+07:00`
+const JKT_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' })
+const jkt = (iso: string) => JKT_DAY.format(new Date(iso))
 
 /**
  * Laba rugi dari transaksi tersimpan. Order memakai nilai snapshot saat dicatat (tidak dihitung ulang
@@ -57,23 +59,27 @@ const endIso = (ymd: string) => `${addDays(ymd, 1)}T00:00:00+07:00`
  */
 export async function loadFinance(supabase: SupabaseClient, p: Period, d: string) {
   const first = periodRange(p, shiftPeriod(p, d, -(BUCKETS[p] - 1)))[0]
-  const [, last] = periodRange(p, d)
-  const [{ data: orders }, { data: expenses }, { data: earnings }, { data: expiredLedger }, { data: vouchers }, { data: purchases }] = await Promise.all([
+  const [cs, ce] = periodRange(p, d)
+  const last = ce
+  // Hanya voucher yang memengaruhi angka: kedaluwarsa/rusak di rentang grafik (modal ikut lewat relasi),
+  // masuk di periode berjalan, dan stok tersedia/dipesan. Bukan seluruh voucher yang pernah dibuat.
+  const [{ data: orders }, { data: expenses }, { data: earnings }, { data: expiredLedger }, { data: vouchersIn }, { data: vouchersOnHand }, { data: purchases }] = await Promise.all([
     supabase.from('orders').select('code, confirmed_at, sell_price, price_after_discount, allocated_cost, gross_profit, extra_cost, needs_review')
       .eq('status', 'confirmed').gte('confirmed_at', startIso(first)).lt('confirmed_at', endIso(last)),
     supabase.from('expenses').select('id, spent_on, category, amount_rp, note').gte('spent_on', first).lte('spent_on', last).order('spent_on', { ascending: false }),
     supabase.from('shift_earnings').select('base_allowance, bonus, shifts!inner(shift_date)').eq('status', 'approved').gte('shifts.shift_date', first).lte('shifts.shift_date', last),
-    supabase.from('stock_ledger').select('voucher_id, at, status_after').in('status_after', ['expired', 'broken']).gte('at', startIso(first)).lt('at', endIso(last)),
-    supabase.from('vouchers').select('id, status, allocated_cost, created_at'),
+    supabase.from('stock_ledger').select('voucher_id, at, status_after, vouchers(allocated_cost)').in('status_after', ['expired', 'broken']).gte('at', startIso(first)).lt('at', endIso(last)),
+    supabase.from('vouchers').select('allocated_cost').gte('created_at', startIso(cs)).lt('created_at', endIso(ce)),
+    supabase.from('vouchers').select('allocated_cost').in('status', ['available', 'reserved']),
     supabase.from('inventory_purchases').select('id, purchased_on, credits, amount_rp, note').gte('purchased_on', first).lte('purchased_on', last).order('purchased_on', { ascending: false }),
   ])
-  const costOf = new Map((vouchers ?? []).map((v) => [v.id, Number(v.allocated_cost)]))
-  const jkt = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date(iso))
+  type Ledger = { at: string; vouchers: { allocated_cost: number | null } | { allocated_cost: number | null }[] | null }
+  const ledgerCost = (l: Ledger) => Number((Array.isArray(l.vouchers) ? l.vouchers[0] : l.vouchers)?.allocated_cost ?? 0)
 
   function pnl(s: string, e: string): Pnl {
     const os = (orders ?? []).filter((o) => { const x = jkt(o.confirmed_at); return x >= s && x <= e })
     const sum = (k: 'sell_price' | 'price_after_discount' | 'allocated_cost' | 'gross_profit' | 'extra_cost') => os.reduce((a, o) => a + Number(o[k]), 0)
-    const expiredLoss = (expiredLedger ?? []).filter((l) => { const x = jkt(l.at); return x >= s && x <= e }).reduce((a, l) => a + (costOf.get(l.voucher_id) ?? 0), 0)
+    const expiredLoss = ((expiredLedger ?? []) as unknown as Ledger[]).filter((l) => { const x = jkt(l.at); return x >= s && x <= e }).reduce((a, l) => a + ledgerCost(l), 0)
     type Earn = { base_allowance: number; bonus: number; shifts: { shift_date: string } | { shift_date: string }[] }
     const payroll = ((earnings ?? []) as unknown as Earn[]).filter((x) => {
       const sd = (Array.isArray(x.shifts) ? x.shifts[0] : x.shifts)?.shift_date
@@ -97,12 +103,11 @@ export async function loadFinance(supabase: SupabaseClient, p: Period, d: string
       : `${s.slice(8, 10)}/${s.slice(5, 7)}`
     return { label, start: s, ...pnl(s, e) }
   })
-  const [cs, ce] = periodRange(p, d)
   const current = pnl(cs, ce)
 
   // Alur persediaan untuk periode berjalan: modal masuk saat restock, jadi HPP hanya saat voucher terpakai.
-  const inventoryIn = (vouchers ?? []).filter((v) => { const x = jkt(v.created_at); return x >= cs && x <= ce }).reduce((a, v) => a + Number(v.allocated_cost), 0)
-  const onHand = (vouchers ?? []).filter((v) => v.status === 'available' || v.status === 'reserved').reduce((a, v) => a + Number(v.allocated_cost), 0)
+  const inventoryIn = (vouchersIn ?? []).reduce((a, v) => a + Number(v.allocated_cost), 0)
+  const onHand = (vouchersOnHand ?? []).reduce((a, v) => a + Number(v.allocated_cost), 0)
   const purchased = (purchases ?? []).filter((x) => x.purchased_on >= cs && x.purchased_on <= ce)
 
   return {

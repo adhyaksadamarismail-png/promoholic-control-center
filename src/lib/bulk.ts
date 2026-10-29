@@ -70,12 +70,12 @@ export function parseBulk(text: string, source: BulkSource): BulkRow[] {
 
 export const BULK_EXAMPLE: Record<BulkSource, Record<BulkMode, string>> = {
   panel: {
-    new_account: '195678 | A=1 | B=1 | C=1\n195679 | A=1 | B=1 | C=1\n195681 | A=1 | B=1 | C=1 | BAPERAN=2',
+    new_account: '123456\n234567\n345678',
     add_stock: '195678 | BAPERAN=2\n195679 | BAPERAN=1',
     extra_only: '- | BAPERAN=10\n195678 | BAPERAN=2',
   },
   vm: {
-    new_account: 'VM-01 | 195678 | 0857-1234-5678 | A=1 | B=1 | C=1\nVM-02 | 195681 | 0857-1234-5681 | A=1 | B=1 | C=1 | BAPERAN=1',
+    new_account: 'VM-01 | 123456 | 0857-1234-5678\nVM-02 | 234567 | 0857-1234-5679',
     add_stock: '195678 | BAPERAN=2',
     extra_only: '195678 | BAPERAN=2',
   },

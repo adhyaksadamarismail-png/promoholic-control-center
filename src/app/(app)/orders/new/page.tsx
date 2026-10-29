@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { createSessionClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, PageHeader, Pill, Table, inputCls } from '@/components/ui'
 import { jktDateTime, rupiah } from '@/lib/format'
@@ -10,8 +11,9 @@ import { OrderForm } from './order-form'
 export const dynamic = 'force-dynamic'
 
 export default async function NewOrderPage() {
-  const supabase = await createSessionClient()
-  const { data: auth } = await supabase.auth.getUser()
+  const viewer = await getViewer()
+  if (!viewer) redirect('/login')
+  const { supabase, userId } = viewer
   const [{ data: brands }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }, { data: orders }, { data: pending }] = await Promise.all([
     supabase.from('brands').select('id, name').order('name'),
     // View tersamar: staf tidak melihat nomor akun lengkap / device VM.
@@ -23,7 +25,7 @@ export default async function NewOrderPage() {
     supabase
       .from('orders')
       .select('id, code, account_id, customer_name, sell_price, net_profit, status, needs_review, review_reasons, created_at, vouchers(code)')
-      .eq('admin_id', auth.user!.id)
+      .eq('admin_id', userId)
       .order('created_at', { ascending: false })
       .limit(15),
     supabase.from('approval_requests').select('target_id').eq('kind', 'order_cancel').eq('status', 'pending'),

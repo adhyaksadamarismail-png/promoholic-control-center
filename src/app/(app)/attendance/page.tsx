@@ -1,4 +1,5 @@
-import { createSessionClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, inputCls, labelCls } from '@/components/ui'
 import { addDays, dateLabel, isoToJktLocal, jktDate, jktDateTime, jktTime, minutesLabel, rupiah, weekStart } from '@/lib/format'
@@ -61,15 +62,14 @@ function one<T>(v: T | T[] | null | undefined): T | null {
 }
 
 export default async function AttendancePage() {
-  const supabase = await createSessionClient()
-  const { data: auth } = await supabase.auth.getUser()
-  const me = auth.user!.id
+  const viewer = await getViewer()
+  if (!viewer) redirect('/login')
+  const { supabase, userId: me, profile } = viewer
   const today = jktDate()
   const week = weekStart(today)
   const nowIso = new Date().toISOString()
 
-  const [{ data: profile }, { data: rows }, { data: allowance }, { data: bonus }, { data: payrolls }, { data: pending }] = await Promise.all([
-    supabase.from('profiles').select('full_name').eq('id', me).single(),
+  const [{ data: rows }, { data: allowance }, { data: bonus }, { data: payrolls }, { data: pending }] = await Promise.all([
     supabase
       .from('shifts')
       .select(
@@ -113,7 +113,7 @@ export default async function AttendancePage() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
-      <PageHeader eyebrow={`${profile?.full_name} · ${dateLabel(today, 'long')}`} title="Absensi & Benefit" />
+      <PageHeader eyebrow={`${profile.full_name} · ${dateLabel(today, 'long')}`} title="Absensi & Benefit" />
 
       {!active.length && (
         <Card>
@@ -229,7 +229,7 @@ export default async function AttendancePage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-ink-500">Diajukan</span>
-                      <span className="font-semibold">{jktDateTime(shown.claimed_at)} · {profile?.full_name}</span>
+                      <span className="font-semibold">{jktDateTime(shown.claimed_at)} · {profile.full_name}</span>
                     </div>
                     {shown.receipt_path && (
                       <a href={`/api/benefit-receipt/${shown.id}`} target="_blank" rel="noopener" className="inline-flex min-h-8 items-center text-sm font-semibold text-orange-700">

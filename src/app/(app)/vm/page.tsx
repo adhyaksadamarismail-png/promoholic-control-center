@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { randomUUID } from 'node:crypto'
-import { createAdminClient, createSessionClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { createAdminClient } from '@/lib/supabase/server'
+import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, Tabs, inputCls, labelCls } from '@/components/ui'
 import { BulkRestock } from '@/components/bulk-restock'
@@ -20,13 +22,13 @@ const CHIP: Record<VoucherStatus, string> = {
 }
 
 export default async function VmPage({ searchParams }: { searchParams: Promise<{ device?: string; tab?: string }> }) {
-  const supabase = await createSessionClient()
-  const { data: auth } = await supabase.auth.getUser()
-  const { data: role } = await supabase.rpc('current_app_role')
+  const viewer = await getViewer()
+  if (!viewer) redirect('/login')
+  const { supabase } = viewer
 
-  if (role !== 'owner') {
+  if (!viewer.isOwner) {
     // Catat percobaan akses staf. Data VM sendiri tetap tertutup RLS dan fungsi database.
-    await createAdminClient().from('audit_log').insert({ actor_id: auth.user!.id, action: 'vm.access_denied', entity: 'vm', entity_id: null, after: { path: '/vm' } })
+    await createAdminClient().from('audit_log').insert({ actor_id: viewer.userId, action: 'vm.access_denied', entity: 'vm', entity_id: null, after: { path: '/vm' } })
     return (
       <div className="mx-auto flex max-w-3xl flex-col gap-5">
         <PageHeader eyebrow="Khusus owner" title="Virtual Machine" />
@@ -42,9 +44,10 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
 
   // Brand VM yang belum punya modal berlaku: akun baru VM ditolak server sampai owner mengaturnya.
   const nowIso = new Date().toISOString()
-  const [{ data: vmBrands }, { data: vmCosts }] = await Promise.all([
+  const [{ data: vmBrands }, { data: vmCosts }, { data: vmTypes }] = await Promise.all([
     supabase.from('brands').select('id, name').eq('vm_allowed', true).order('id'),
     supabase.from('brand_costs').select('brand_id').lte('effective_from', nowIso),
+    supabase.from('voucher_types').select('brand_id, code, name, grp, auto_per_account, brands!inner(vm_allowed)').eq('brands.vm_allowed', true).eq('is_active', true).order('sort_order'),
   ])
   const costMissing = (vmBrands ?? []).filter((b) => !(vmCosts ?? []).some((c) => c.brand_id === b.id))
   const costNote = costMissing.length > 0 && (
@@ -70,7 +73,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
       <div className="mx-auto flex max-w-6xl flex-col gap-5">
         <PageHeader eyebrow="Khusus owner · input banyak akun sekaligus" title="Virtual Machine" />
         {tabs('bulk')}
-        <BulkRestock source="vm" brands={vmBrands ?? []} costMissing={costMissing.map((b) => b.id)} isOwner />
+        <BulkRestock source="vm" brands={vmBrands ?? []} costMissing={costMissing.map((b) => b.id)} isOwner autoTypes={vmTypes ?? []} />
         <BatchHistory source="vm" />
       </div>
     )

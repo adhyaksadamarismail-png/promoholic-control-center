@@ -4,7 +4,7 @@ import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Table, Tabs, inputCls, labelCls } from '@/components/ui'
 import { addDays, jktDate, jktDateTime, rupiah } from '@/lib/format'
 import { currentVersion } from '@/lib/inventory'
-import { addType, addVersion, updateType } from './actions'
+import { addType, addVersion, setTypeAuto, updateType } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -152,6 +152,21 @@ export default async function VoucherConfigPage({ searchParams }: { searchParams
               Kolom kosong tetap &quot;belum dikonfigurasi&quot;. Order sebelum tanggal berlaku tetap memakai versi lama yang tersimpan di order.
               Diskon persen tanpa batas maksimum membuat order ditandai untuk ditinjau.
             </p>
+            {sel.grp === 'main' && (
+              <details className="text-sm">
+                <summary className="cursor-pointer font-semibold text-orange-700">Jumlah otomatis per akun baru</summary>
+                <ActionForm key={`a-${sel.id}-${sel.auto_per_account}`} action={setTypeAuto} className="mt-2 flex flex-col gap-2"
+                  confirm="Ubah jumlah voucher otomatis untuk akun baru berikutnya?">
+                  <input type="hidden" name="type" value={sel.id} />
+                  <label className={labelCls}>
+                    Jumlah per akun baru
+                    <input name="auto_per_account" inputMode="numeric" defaultValue={sel.auto_per_account ?? ''} placeholder="kosong = diisi saat restock" className={inputCls} />
+                    <span className="text-xs font-normal text-ink-500">Berlaku untuk akun yang dibuat setelah disimpan; akun lama tidak berubah. Tercatat di audit log.</span>
+                  </label>
+                  <SubmitButton variant="ghost">Simpan jumlah</SubmitButton>
+                </ActionForm>
+              </details>
+            )}
             <details className="text-sm">
               <summary className="cursor-pointer font-semibold text-orange-700">Ganti nama / nonaktifkan jenis</summary>
               <ActionForm key={`u-${sel.id}`} action={updateType} className="mt-2 flex flex-col gap-2">

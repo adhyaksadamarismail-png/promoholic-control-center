@@ -1,4 +1,5 @@
-import { createSessionClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { getViewer } from '@/lib/auth'
 import { Card, Note, PageHeader, Table, Tabs } from '@/components/ui'
 import { jktDate, jktTime } from '@/lib/format'
 import { PanelForm } from './panel-form'
@@ -14,9 +15,11 @@ type Item = { type: string; qty: number }
 export default async function PanelPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const m = (await searchParams).mode
   const mode = m === 'add' || m === 'extra' || m === 'bulk' ? m : 'new'
-  const supabase = await createSessionClient()
-  const [{ data: allowed }, { data: role }] = await Promise.all([supabase.rpc('can_restock_panel'), supabase.rpc('current_app_role')])
-  const isOwner = role === 'owner'
+  const viewer = await getViewer()
+  if (!viewer) redirect('/login')
+  const { supabase, isOwner } = viewer
+  // Sama dengan can_restock_panel(): owner, atau staf aktif yang diberi izin. Fungsi restock memeriksa ulang di database.
+  const allowed = isOwner || viewer.profile.can_restock_panel
 
   if (!allowed)
     return (
@@ -72,6 +75,7 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
             brands={brands ?? []}
             costMissing={(brands ?? []).filter((b) => !latest.some((c) => c.brand_id === b.id)).map((b) => b.id)}
             isOwner={isOwner}
+            autoTypes={types ?? []}
           />
           <BatchHistory source="panel" />
         </>

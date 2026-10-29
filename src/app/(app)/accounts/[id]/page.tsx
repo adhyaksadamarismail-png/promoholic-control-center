@@ -1,33 +1,36 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { z } from 'zod'
-import { createSessionClient } from '@/lib/supabase/server'
+import { getSessionClient, getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Table, inputCls } from '@/components/ui'
 import { dateLabel, jktDate, jktDateTime } from '@/lib/format'
 import { ACCOUNT_STATE, LEDGER_REASON, VOUCHER_STATUS, accountState, currentVersion, ruleLabel, type Rule, type VoucherStatus } from '@/lib/inventory'
-import { requestStockAdjust } from './actions'
+import { cancelUseNow, requestStockAdjust, requestUseCancel } from './actions'
+import { UseVoucherForm } from './use-voucher'
 
 export const dynamic = 'force-dynamic'
 
-type Usage = { id: string; voucher_id: string; customer_name: string; customer_wa: string; admin_name: string; order_code: string; used_at: string; reversed_at: string | null }
+type Usage = { id: string; voucher_id: string; order_id: string; admin_id: string; customer_name: string; customer_wa: string; admin_name: string; order_code: string; used_at: string; reversed_at: string | null }
 type Voucher = { id: string; code: string; voucher_type_id: string; grp: 'main' | 'extra'; slot: number; status: VoucherStatus; allocated_cost: number }
 
 export default async function AccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   if (!z.string().uuid().safeParse(id).success) notFound()
-  const supabase = await createSessionClient()
-  const [{ data: role }, { data: account }, { data: vdata }] = await Promise.all([
-    supabase.rpc('current_app_role'),
+  // Query pertama berjalan bersamaan dengan pemeriksaan sesi (RLS tetap berlaku); tampilan menunggu keduanya.
+  const supabase = await getSessionClient()
+  const [viewer, { data: account }, { data: vdata }] = await Promise.all([
+    getViewer(),
     supabase.from('account_list').select('*').eq('id', id).maybeSingle(),
     supabase.from('vouchers').select('id, code, voucher_type_id, grp, slot, status, allocated_cost').eq('account_id', id),
   ])
+  if (!viewer) redirect('/login')
+  const { isOwner } = viewer
   if (!account) notFound()
-  const isOwner = role === 'owner'
   const vouchers = (vdata ?? []) as Voucher[]
   const vIds = vouchers.map((v) => v.id)
 
-  const [{ data: brand }, { data: types }, { data: versions }, { data: usages }, { data: ledger }, { data: restocks }, { data: profiles }, { data: pending }] = await Promise.all([
+  const [{ data: brand }, { data: types }, { data: versions }, { data: usages }, { data: ledger }, { data: restocks }, { data: profiles }, { data: pending }, { data: pendingCancels }] = await Promise.all([
     supabase.from('brands').select('name').eq('id', account.brand_id).single(),
     supabase.from('voucher_types').select('id, code, name, grp, sort_order').eq('brand_id', account.brand_id),
     supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
@@ -37,6 +40,8 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
     supabase.from('restocks').select('code, kind, created_at, items').eq('account_id', id).order('created_at'),
     supabase.from('profiles').select('id, full_name'),
     supabase.from('approval_requests').select('target_id').eq('kind', 'stock_adjust').eq('status', 'pending').in('target_id', vIds),
+    // RLS: staf hanya melihat pengajuannya sendiri; owner semua.
+    supabase.from('approval_requests').select('target_id').eq('kind', 'order_cancel').eq('status', 'pending'),
   ])
   const typeOf = (tid: string) => types?.find((t) => t.id === tid)
   const ruleOf = (tid: string) => currentVersion((versions ?? []) as (Rule & { voucher_type_id: string; effective_from: string })[], tid) ?? null
@@ -45,6 +50,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   const codeOf = (vid: string) => vouchers.find((v) => v.id === vid)?.code
   const nameOf = (pid: string | null) => profiles?.find((p) => p.id === pid)?.full_name ?? 'Sistem'
   const pendingSet = new Set((pending ?? []).map((p) => p.target_id))
+  const cancelPending = new Set((pendingCancels ?? []).map((p) => p.target_id))
   const sort = (a: Voucher, b: Voucher) => (typeOf(a.voucher_type_id)?.sort_order ?? 0) - (typeOf(b.voucher_type_id)?.sort_order ?? 0) || a.slot - b.slot
   const main = vouchers.filter((v) => v.grp === 'main').sort(sort)
   const extra = vouchers.filter((v) => v.grp === 'extra').sort(sort)
@@ -70,6 +76,30 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         </ActionForm>
       </details>
     ))
+
+  const usageControls = (v: Voucher) => {
+    if (v.status === 'available')
+      return <UseVoucherForm voucherId={v.id} voucherCode={v.code} accountId={account.id} rule={ruleOf(v.voucher_type_id)} />
+    const u = usageOf(v.id)
+    if (v.status !== 'used' || !u) return null
+    if (cancelPending.has(u.order_id)) return <span className="text-xs font-semibold text-warning-700">Pembatalan {u.order_code} menunggu owner</span>
+    if (!isOwner && u.admin_id !== viewer.userId) return null
+    return (
+      <details className="text-sm">
+        <summary className="cursor-pointer text-xs font-semibold text-orange-700">{isOwner ? 'Batalkan pemakaian' : 'Ajukan pembatalan'}</summary>
+        <ActionForm
+          action={isOwner ? cancelUseNow : requestUseCancel}
+          className="mt-2 flex flex-col gap-1.5"
+          confirm={isOwner ? `Batalkan pemakaian ${v.code} (order ${u.order_code})? Voucher kembali tersedia.` : undefined}
+        >
+          <input type="hidden" name="order" value={u.order_id} />
+          <input type="hidden" name="account" value={account.id} />
+          <input name="reason" required minLength={3} placeholder="Alasan, mis. salah klik" className={inputCls} />
+          <SubmitButton variant="ghost">{isOwner ? 'Batalkan pemakaian' : 'Kirim pengajuan'}</SubmitButton>
+        </ActionForm>
+      </details>
+    )
+  }
 
   const info: [string, React.ReactNode][] = [
     ['Brand', brand?.name],
@@ -126,6 +156,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
                 {reversedOf(v.id).map((r) => (
                   <span key={r.id} className="text-xs text-ink-500">Pernah dipakai {r.order_code}, dibatalkan {jktDateTime(r.reversed_at)}</span>
                 ))}
+                {usageControls(v)}
                 {adjustForm(v)}
               </article>
             )
@@ -150,7 +181,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
                   <td className="font-mono text-[13px]">{u?.order_code ?? '—'}</td>
                   <td>{u ? jktDateTime(u.used_at) : '—'}</td>
                   <td>{u?.admin_name ?? '—'}</td>
-                  <td>{adjustForm(v)}</td>
+                  <td className="min-w-56"><div className="flex flex-col gap-2">{usageControls(v)}{adjustForm(v)}</div></td>
                 </tr>
               )
             })}

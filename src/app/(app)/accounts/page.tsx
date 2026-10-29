@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { createSessionClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { getViewer } from '@/lib/auth'
 import { PageHeader, Pill, Table, inputCls } from '@/components/ui'
 import { dateLabel, jktDate } from '@/lib/format'
 import { ACCOUNT_STATE, VOUCHER_STATUS } from '@/lib/inventory'
@@ -17,8 +18,10 @@ const CHIP: Record<string, string> = {
 
 export default async function AccountsPage({ searchParams }: { searchParams: Promise<AccountFilter> }) {
   const f = await searchParams
-  const supabase = await createSessionClient()
-  const { data: role } = await supabase.rpc('current_app_role')
+  const viewer = await getViewer()
+  if (!viewer) redirect('/login')
+  const { supabase } = viewer
+  const role = viewer.profile.role
   const { brands, types, rows, filtered, incomplete } = await loadAccounts(supabase, f)
   const typeCode = (id: string) => types.find((t) => t.id === id)?.code ?? '?'
   const exportQs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString()

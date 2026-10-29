@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { assertOwner } from '@/lib/auth'
-import { dbMessage, int, str, type ActionResult } from '@/lib/rpc'
+import { callRpc, dbMessage, int, str, type ActionResult } from '@/lib/rpc'
 import { createAdminClient } from '@/lib/supabase/server'
 import { isYmd } from '@/lib/format'
 
@@ -87,4 +87,16 @@ export async function updateType(_: ActionResult | null, fd: FormData): Promise<
   await audit(me.user?.id, 'voucher_type.update', id.data, { name, is_active: active })
   PATHS.forEach((p) => revalidatePath(p))
   return { ok: true, message: active ? 'Jenis voucher diperbarui.' : 'Jenis voucher dinonaktifkan: tidak dipakai untuk restock baru. Voucher yang sudah ada tetap tercatat.' }
+}
+
+/** Jumlah voucher utama otomatis per akun baru. Validasi, aturan "hanya voucher utama", dan audit di set_voucher_type_auto. */
+export async function setTypeAuto(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const id = uuid.safeParse(str(fd, 'type'))
+  const raw = str(fd, 'auto_per_account')
+  const auto = raw === '' ? null : int(fd, 'auto_per_account')
+  if (!id.success) return { ok: false, message: 'Permintaan tidak valid.' }
+  if (raw !== '' && (auto === null || auto < 1 || auto > 10)) return { ok: false, message: 'Isi 1–10, atau kosongkan agar jumlahnya diisi saat restock.' }
+  const r = await callRpc('set_voucher_type_auto', { p_type: id.data, p_auto: auto }, '', PATHS)
+  if (!r.ok) return r
+  return { ok: true, message: auto ? `Setiap akun baru akan otomatis mendapat ${auto} voucher ini.` : 'Jumlah voucher ini diisi saat restock (tidak otomatis).' }
 }

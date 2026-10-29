@@ -1,12 +1,22 @@
 'use client'
 
-import Link from 'next/link'
+import Link, { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
 export type NavItem = { href: string; label: string }
 
 const isActive = (path: string, href: string) => (href === '/' ? path === '/' : path === href || path.startsWith(href + '/'))
+
+/** Tanda langsung pada menu yang diklik selama halaman tujuan dimuat (tanpa membungkus halaman dengan Suspense). */
+function PendingDot() {
+  const { pending } = useLinkStatus()
+  return (
+    <span aria-hidden={!pending} className={`ml-auto size-2 shrink-0 rounded-full bg-orange-500 ${pending ? '' : 'invisible'}`}>
+      <span className="sr-only">{pending ? 'Memuat…' : ''}</span>
+    </span>
+  )
+}
 
 /** Navigasi samping (desktop). */
 export function SideNav({ staff, owner }: { staff: NavItem[]; owner: NavItem[] | null }) {
@@ -16,9 +26,10 @@ export function SideNav({ staff, owner }: { staff: NavItem[]; owner: NavItem[] |
       key={n.href}
       href={n.href}
       aria-current={isActive(path, n.href) ? 'page' : undefined}
-      className="flex min-h-10 items-center rounded-lg px-2.5 text-sm font-medium hover:bg-navy-800 hover:text-white aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
+      className="flex min-h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium hover:bg-navy-800 hover:text-white aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
     >
       {n.label}
+      <PendingDot />
     </Link>
   )
   return (
@@ -105,11 +116,13 @@ export function MobileNav({ logo, staff, owner, name, role }: { logo: React.Reac
                     <Link
                       key={n.href}
                       href={n.href}
-                      onClick={() => setOpen(false)}
+                      // Menu tetap terbuka dengan tanda memuat sampai halaman tujuan tampil (ditutup efek perubahan path).
+                      onClick={() => isActive(path, n.href) && setOpen(false)}
                       aria-current={isActive(path, n.href) ? 'page' : undefined}
-                      className="flex min-h-11 items-center rounded-lg px-2.5 text-sm text-[#c5cbd9] aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
+                      className="flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-[#c5cbd9] aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
                     >
                       {n.label}
+                      <PendingDot />
                     </Link>
                   ))}
                 </div>

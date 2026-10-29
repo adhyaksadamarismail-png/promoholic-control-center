@@ -19,10 +19,12 @@ type Checked = {
   counts: Record<string, number>
   total: number
 }
-type Result = { batch: string; new_accounts: number; vouchers: number; total_cost: number; cost_unknown: number; repeated: boolean }
+type ResultRow = { restock: string; account: string | null; account_key: string | null; items: { type: string; qty: number }[]; vouchers: number }
+type Result = { batch: string; new_accounts: number; vouchers: number; total_cost: number; cost_unknown: number; repeated: boolean; rows: ResultRow[] }
+type AutoType = { brand_id: string; code: string; name: string; grp: string; auto_per_account: number | null }
 
 const MODES: { key: BulkMode; label: string; help: string }[] = [
-  { key: 'new_account', label: 'Akun baru', help: 'Membuat akun + voucher utama otomatis sesuai aturan brand; voucher tambahan (mis. BAPERAN) opsional.' },
+  { key: 'new_account', label: 'Akun baru', help: 'Cukup satu ID akun per baris. Voucher utama dibuat otomatis dari Konfigurasi Voucher; voucher tambahan hanya bila ditulis (mis. 123456 | BAPERAN=2).' },
   { key: 'add_stock', label: 'Tambah voucher ke akun yang sudah ada', help: 'Hanya voucher tambahan; akun tidak dibuat ulang dan voucher utama tidak digandakan.' },
   { key: 'extra_only', label: 'Restock Baperan saja', help: 'Tanpa akun baru dan tanpa voucher utama. ID akun boleh "-" untuk Baperan lepas.' },
 ]
@@ -33,9 +35,10 @@ const forServer = (r: BulkRow) => ({ line: r.line, device: r.device, code: r.cod
 const rp = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
 /** Bulk Restock: tempel teks / unggah CSV → preview tervalidasi server → konfirmasi (satu batch atomik). */
-export function BulkRestock({ source, brands, costMissing = [], isOwner = false }: {
+export function BulkRestock({ source, brands, costMissing = [], isOwner = false, autoTypes = [] }: {
   source: BulkSource
   brands: Brand[]
+  autoTypes?: AutoType[] // jenis voucher aktif brand terkait, dari database (bukan daftar tetap)
   costMissing?: string[] // brand yang belum punya modal berlaku (Panel: semua brand; VM: brand VM)
   isOwner?: boolean
 }) {
@@ -58,6 +61,13 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false 
   // Panel: brand pilihan; VM: brand ditentukan per baris, jadi semua brand VM tanpa modal ditampilkan.
   const blockedBrands = (source === 'panel' ? costMissing.filter((id) => id === brand) : costMissing)
     .map((id) => brands.find((b) => b.id === id) ?? { id, name: id })
+  // Voucher otomatis per akun baru menurut konfigurasi: Panel = brand pilihan; VM = brand VM (dari prop brands).
+  const autoBrands = source === 'panel' ? brands.filter((b) => b.id === brand) : brands
+  const autoInfo = autoBrands.map((b) => ({
+    brand: b,
+    auto: autoTypes.filter((t) => t.brand_id === b.id && t.grp === 'main' && t.auto_per_account),
+    extra: autoTypes.filter((t) => t.brand_id === b.id && !t.auto_per_account),
+  }))
   const invalidate = () => { setChecked(null); setMessage(null) }
   function reset() {
     setText(''); setFileName(''); setParsed([]); setChecked(null); setMessage(null); setResult(null)
@@ -132,6 +142,36 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false 
           {result.new_accounts} akun baru · {result.vouchers} voucher masuk · modal {rp(Number(result.total_cost))}
           {result.cost_unknown ? ` · ${result.cost_unknown} voucher modal belum diisi` : ''}
         </p>
+        <div className="max-h-96 overflow-auto rounded-xl border border-success-700/30 bg-white">
+          <table className="w-full text-left text-sm">
+            <thead className="sticky top-0 bg-white text-xs uppercase tracking-[0.05em] text-ink-500">
+              <tr><th className="px-3 py-2">Baris</th><th className="px-3 py-2">ID akun</th><th className="px-3 py-2">Hasil</th><th className="px-3 py-2">Keterangan</th></tr>
+            </thead>
+            <tbody>
+              {(checked ?? []).map((c) => {
+                const key = c.code && c.brand ? c.code.replace(new RegExp(`^${c.brand}-`), '') : null // ID tanpa prefix brand, seperti account_key
+                const saved = c.ok ? (result.rows ?? []).filter((r) => (r.account_key ?? null) === key) : []
+                const dup = !c.ok && /duplikat|sudah terdaftar|sudah dipakai/i.test(c.error ?? '')
+                return (
+                  <tr key={c.line} className="border-t border-[#f1eadc]">
+                    <td className="px-3 py-2">{c.line}</td>
+                    <td className="px-3 py-2 font-mono text-[13px]">{c.code ?? 'Tanpa akun'}</td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${c.ok ? 'bg-success-100 text-success-700' : dup ? 'bg-warning-100 text-warning-700' : 'bg-danger-100 text-danger-700'}`}>
+                        {c.ok ? 'Berhasil' : dup ? 'Duplikat' : 'Gagal'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      {c.ok
+                        ? saved.map((r) => `${r.restock}: ${r.items.map((i) => `${i.type}×${i.qty}`).join(', ')}`).join(' · ') || `${c.total} voucher`
+                        : `Tidak disimpan — ${c.error}`}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
         <button onClick={reset} className="min-h-11 w-fit rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white">Input batch baru</button>
       </div>
     )
@@ -173,6 +213,20 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false 
               <input value={unitCost} inputMode="numeric" onChange={(e) => setUnitCost(e.target.value.replace(/\D/g, ''))} placeholder="Kosong = belum diisi" className={input} />
             </label>
           </>
+        )}
+        {mode === 'new_account' && autoInfo.length > 0 && (
+          <div className="flex flex-col gap-1 rounded-xl bg-cream-100 px-3 py-2.5 text-sm lg:col-span-2">
+            {autoInfo.map(({ brand: b, auto, extra }) => (
+              <span key={b.id}>
+                <b>{b.name}:</b>{' '}
+                {auto.length
+                  ? `setiap akun baru otomatis mendapat ${auto.map((t) => `${t.code} ×${t.auto_per_account}`).join(', ')}`
+                  : 'belum ada voucher otomatis per akun — tulis jumlahnya per baris, atau atur di Konfigurasi Voucher'}
+                {extra.length > 0 && <span className="text-ink-500"> · {extra.map((t) => t.code).join(', ')} hanya bila ditulis</span>}
+              </span>
+            ))}
+            <span className="text-xs text-ink-500">Dari Konfigurasi Voucher yang berlaku; dihitung ulang server saat validasi.</span>
+          </div>
         )}
         <label className={`${label} lg:col-span-2`}>
           Data (satu akun per baris)
