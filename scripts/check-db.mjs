@@ -112,6 +112,21 @@ await as('rani', async () => {
   const a = await q(`select id from public.account_list where account_code = 'KK-0233'`)
   await expectOk('tambah Baperan ke akun Panel yang ada', () => q(`select public.add_stock($1, '[{"type":"BP","qty":2}]', gen_random_uuid())`, [a[0].id]))
 })
+await as('rani', async () => {
+  const v = await q(`select allocated_cost from public.vouchers v join public.account_list a on a.id = v.account_id
+                     where a.account_code = 'KK-0233' and v.code like '%-BP%' order by v.slot desc limit 1`)
+  Number(v[0].allocated_cost) === 0 && v[0].allocated_cost !== null ? ok('modal per akun: Baperan tambahan tetap Rp0') : bad('modal Baperan KK', v[0].allocated_cost)
+})
+await db.exec('reset role')
+await q(`insert into public.brands (id, name) values ('ZZ', 'Uji Tanpa Modal')`)
+await q(`insert into public.voucher_types (brand_id, code, name, grp) values ('ZZ', 'X', 'Uji', 'extra')`)
+await q(`insert into public.accounts (brand_id, account_code, source) values ('ZZ', 'ZZ-0001', 'panel')`)
+await as('rani', async () => {
+  const a = await q(`select id from public.account_list where account_code = 'ZZ-0001'`)
+  await expectOk('tambah voucher ke akun brand tanpa modal', () => q(`select public.add_stock($1, '[{"type":"X","qty":2}]', gen_random_uuid())`, [a[0].id]))
+  const v = await q(`select count(*)::int n, count(*) filter (where allocated_cost is null)::int unknown from public.vouchers where account_id = $1`, [a[0].id])
+  v[0].n === 2 && v[0].unknown === 2 ? ok('modal brand belum dikonfigurasi: voucher "belum diisi" (NULL), bukan Rp0') : bad('modal NULL', JSON.stringify(v[0]))
+})
 await expectFail('staf tidak menambah stok akun VM', () => as('rani', async () => {
   const a = await q(`select id from public.account_list where account_code = 'KK-0192'`)
   return q(`select public.add_stock($1, '[{"type":"BP","qty":1}]', gen_random_uuid())`, [a[0].id])
