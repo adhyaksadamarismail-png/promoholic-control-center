@@ -5,7 +5,7 @@ import { WEEKDAYS, addDays, dateLabel, isYmd, isoToJktLocal, jktDate, jktDateTim
 import {
   EARNING_STATUS,
   KIND_LABEL,
-  SHIFT_STATUS,
+  shiftLabel,
   bonusRuleLabel,
   breakMinutes,
   effectiveEvents,
@@ -121,7 +121,7 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
           {shifts.map((s) => {
             const eff = effectiveEvents(s.attendance_events ?? [])
             const corrected = (s.attendance_events ?? []).filter((e) => e.corrects_id)
-            const st = SHIFT_STATUS[s.status]
+            const st = shiftLabel(s.status, eff)
             return (
               <tr key={s.id}>
                 <td className="whitespace-nowrap">{dateLabel(s.shift_date)}</td>

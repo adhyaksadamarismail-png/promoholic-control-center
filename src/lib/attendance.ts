@@ -44,6 +44,20 @@ export const SHIFT_STATUS: Record<string, { label: string; tone: 'neutral' | 'in
   cancelled: { label: 'Dibatalkan', tone: 'neutral' },
 }
 
+/**
+ * Label status shift untuk tabel & ringkasan. Status shift di database hanya berubah saat masuk/pulang, jadi selama
+ * shift berjalan labelnya diambil dari event terakhir (workStatus) — sumber yang sama dengan kartu Status admin.
+ */
+export function shiftLabel(shiftStatus: string, effective: AttendanceEvent[]): { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' } {
+  if (shiftStatus === 'cancelled' || shiftStatus === 'completed' || shiftStatus === 'incomplete') return SHIFT_STATUS[shiftStatus]
+  const { status } = workStatus(effective)
+  if (status === 'belum') return SHIFT_STATUS.scheduled
+  if (status === 'masuk') return SHIFT_STATUS.in_progress
+  if (status === 'istirahat') return { label: 'Sedang istirahat', tone: 'warning' }
+  if (status === 'off') return { label: 'Off / Izin', tone: 'danger' }
+  return SHIFT_STATUS.completed
+}
+
 export const EARNING_STATUS: Record<string, { label: string; tone: 'warning' | 'success' | 'danger' }> = {
   pending: { label: 'Menunggu persetujuan', tone: 'warning' },
   approved: { label: 'Disetujui', tone: 'success' },

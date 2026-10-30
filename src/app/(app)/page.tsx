@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
 import { Icon, type IconName } from '@/components/icons'
 import { WEEKDAYS, addDays, dateLabel, isYmd, jktDate, jktTime, rupiah, weekStart } from '@/lib/format'
-import { effectiveEvents, firstOf, type AttendanceEvent } from '@/lib/attendance'
+import { effectiveEvents, firstOf, shiftLabel, type AttendanceEvent } from '@/lib/attendance'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,7 +42,11 @@ function shiftState(s: Shift, now: number): { label: string; tone: Tone } {
   const hasIn = s.attendance_events?.some((e) => e.kind === 'clock_in')
   if (s.status === 'cancelled') return { label: 'Dibatalkan', tone: 'neutral' }
   if (s.status === 'completed') return { label: 'Selesai', tone: 'done' }
-  if (s.status === 'in_progress') return { label: 'Sedang berlangsung', tone: 'live' }
+  if (s.status === 'in_progress') {
+    // Label dari event terakhir (sama dengan kartu Status admin): bekerja, istirahat, atau Off/Izin.
+    const l = shiftLabel(s.status, effectiveEvents(s.attendance_events ?? []))
+    return { label: l.label, tone: l.tone === 'warning' ? 'warning' : l.tone === 'danger' ? 'danger' : 'live' }
+  }
   if (s.status === 'incomplete') return hasIn ? { label: 'Absensi tidak lengkap', tone: 'danger' } : { label: 'Tidak hadir', tone: 'danger' }
   if (Date.parse(s.planned_end) < now) return { label: 'Tidak hadir', tone: 'danger' }
   return { label: 'Belum dimulai', tone: 'neutral' }
