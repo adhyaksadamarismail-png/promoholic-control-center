@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
 import { MobileNav, SideNav } from './nav'
+import { PageTransition } from '@/components/page-transition'
 
 const STAFF_NAV = [
   { href: '/', label: 'Beranda' },
@@ -39,10 +40,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* HP: header ringkas dengan menu lipat (backdrop, bisa digulir). Tanpa bilah tab bawah. */}
       <MobileNav logo={logo} staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} name={profile.full_name} role={roleLabel} />
 
-      <aside className="hidden flex-[0_0_244px] flex-col gap-4 bg-navy-900 px-3.5 py-5 text-[#c5cbd9] md:flex">
-        <div className="px-2 pb-2">{logo}</div>
-        <SideNav staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} />
-        <div className="mt-auto flex items-center justify-between gap-2 rounded-lg bg-navy-800 px-2.5 py-3">
+      {/* Tablet & desktop: sidebar menempel setinggi layar dan tidak ikut bergulir; menu panjang bergulir di dalam sidebar. */}
+      <aside className="sticky top-0 hidden h-dvh flex-[0_0_244px] flex-col gap-4 self-start bg-navy-900 px-3.5 py-5 text-[#c5cbd9] md:flex">
+        <div className="shrink-0 px-2 pb-2">{logo}</div>
+        <div className="sidebar-scroll -mx-1.5 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5">
+          <SideNav staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} />
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg bg-navy-800 px-2.5 py-3">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-white">{profile.full_name}</span>
             <span className="text-xs text-[#8790a6]">{roleLabel}</span>
@@ -53,7 +57,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-4 pb-[calc(3rem+env(safe-area-inset-bottom))] pt-5 sm:px-8 md:pb-12 md:pt-6">{children}</main>
+      <main className="min-w-0 flex-1 px-4 pb-[calc(3rem+env(safe-area-inset-bottom))] pt-5 sm:px-8 md:pb-12 md:pt-6">
+        <PageTransition>{children}</PageTransition>
+      </main>
     </div>
   )
 }

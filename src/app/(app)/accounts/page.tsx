@@ -1,11 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
-import { Note, PageHeader, Pill, Table, inputCls } from '@/components/ui'
+import { Note, PageHeader, Pill, Table, Tabs, inputCls } from '@/components/ui'
 import { dateLabel, jktDate } from '@/lib/format'
 import { ACCOUNT_STATE, VOUCHER_STATUS } from '@/lib/inventory'
 import { loadAccounts, type AccountFilter } from '@/lib/accounts'
 import { BulkDeleteProvider, RowCheck } from './bulk-delete'
+import { BaperanList } from './baperan-list'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,12 +18,33 @@ const CHIP: Record<string, string> = {
   broken: 'bg-danger-100 text-danger-700 border-danger-700/30',
 }
 
-export default async function AccountsPage({ searchParams }: { searchParams: Promise<AccountFilter & { deleted?: string }> }) {
-  const { deleted, ...f } = await searchParams
+export default async function AccountsPage({ searchParams }: { searchParams: Promise<AccountFilter & { deleted?: string; view?: string; bstatus?: string }> }) {
+  const { deleted, view, bstatus, ...f } = await searchParams
   const viewer = await getViewer()
   if (!viewer) redirect('/login')
   const { supabase } = viewer
   const role = viewer.profile.role
+  const tabs = (
+    <Tabs
+      items={[
+        { key: 'regular', label: 'Akun reguler', href: '/accounts' },
+        { key: 'baperan', label: 'Inventaris Baperan', href: '/accounts?view=baperan' },
+      ]}
+      active={view === 'baperan' ? 'baperan' : 'regular'}
+    />
+  )
+  if (view === 'baperan')
+    return (
+      <div className="mx-auto flex max-w-6xl flex-col gap-5">
+        <PageHeader eyebrow="Inventaris terpisah · 1 nomor = 1 akun = 1 voucher" title="Daftar Akun">
+          {(role === 'owner' || viewer.profile.can_restock_panel) && (
+            <Link href="/panel?mode=extra" className="flex min-h-11 items-center rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white">Restock Baperan</Link>
+          )}
+        </PageHeader>
+        {tabs}
+        <BaperanList supabase={supabase} isOwner={role === 'owner'} f={{ q: f.q, bstatus: ['aktif', 'segera', 'kedaluwarsa'].includes(bstatus ?? '') ? bstatus : undefined }} />
+      </div>
+    )
   const { brands, types, rows, filtered, incomplete } = await loadAccounts(supabase, f)
   const typeCode = (id: string) => types.find((t) => t.id === id)?.code ?? '?'
   const isOwner = role === 'owner'
@@ -38,6 +60,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           Export CSV
         </a>
       </PageHeader>
+      {tabs}
       {deleted && <Note>Akun {deleted} dihapus beserta vouchernya. Tindakan tercatat di audit log.</Note>}
 
       <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-5 md:overflow-visible md:px-0 md:pb-0">
@@ -49,7 +72,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             <Link
               key={b.id}
               href={`/accounts?brand=${b.id}`}
-              className={`flex min-w-[150px] shrink-0 flex-col gap-1 rounded-xl border bg-white p-3.5 md:min-w-0 ${f.brand === b.id ? 'border-orange-500' : 'border-cream-300'}`}
+              className={`card-hover flex min-w-[150px] shrink-0 flex-col gap-1 rounded-xl border bg-white p-3.5 md:min-w-0 ${f.brand === b.id ? 'border-orange-500' : 'border-cream-300'}`}
             >
               <span className="text-xs font-bold uppercase tracking-[0.06em] text-ink-500">{b.name}</span>
               <span className="font-display text-2xl font-bold">{main + extra}</span>
@@ -110,7 +133,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           return (
             <li key={r.id} className="flex items-center gap-2">
               <RowCheck id={r.id} code={r.account_code} />
-              <Link href={`/accounts/${r.id}`} className="flex min-w-0 flex-1 flex-col gap-2 rounded-xl border border-cream-300 bg-white p-3.5">
+              <Link href={`/accounts/${r.id}`} className="card-hover flex min-w-0 flex-1 flex-col gap-2 rounded-xl border border-cream-300 bg-white p-3.5">
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-mono font-semibold">{r.account_code}</span>
                   <Pill tone={st.tone}>{st.label}</Pill>

@@ -14,7 +14,7 @@ export function PageHeader({ eyebrow, title, children }: { eyebrow?: string; tit
 
 export function Card({ title, children, className = '', aside }: { title?: string; children: React.ReactNode; className?: string; aside?: React.ReactNode }) {
   return (
-    <section className={`flex min-w-0 flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 ${className}`}>
+    <section className={`card-hover flex min-w-0 flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 ${className}`}>
       {(title || aside) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           {title && <h2 className="font-display text-base font-semibold">{title}</h2>}
@@ -37,7 +37,7 @@ const TONES = {
 export type Tone = keyof typeof TONES
 
 export function Pill({ tone = 'neutral', children }: { tone?: Tone; children: React.ReactNode }) {
-  return <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-bold ${TONES[tone]}`}>{children}</span>
+  return <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-bold transition-colors duration-200 ${TONES[tone]}`}>{children}</span>
 }
 
 export function Note({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: 'neutral' | 'warning' }) {
@@ -56,7 +56,7 @@ export function Tabs({ items, active }: { items: { key: string; label: string; h
           key={t.key}
           href={t.href}
           aria-current={t.key === active ? 'page' : undefined}
-          className={`flex min-h-10 shrink-0 items-center rounded-lg px-3.5 text-sm font-semibold ${t.key === active ? 'bg-navy-900 text-white' : 'text-ink-500 hover:bg-cream-100'}`}
+          className={`btn-press flex min-h-10 shrink-0 items-center rounded-lg px-3.5 text-sm font-semibold ${t.key === active ? 'bg-navy-900 text-white' : 'text-ink-500 hover:bg-cream-100 hover:text-navy-900'}`}
         >
           {t.label}
         </Link>
@@ -67,7 +67,7 @@ export function Tabs({ items, active }: { items: { key: string; label: string; h
 
 export function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
   return (
-    <div className="flex min-w-[140px] flex-1 flex-col gap-0.5 rounded-xl border border-cream-300 bg-white p-3 sm:gap-1 sm:p-4">
+    <div className="card-hover flex min-w-[140px] flex-1 flex-col gap-0.5 rounded-xl border border-cream-300 bg-white p-3 sm:gap-1 sm:p-4">
       <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-ink-500 sm:text-xs">{label}</span>
       <span className="font-display text-lg font-bold sm:text-xl">{value}</span>
       {sub && <span className="text-xs text-ink-500">{sub}</span>}

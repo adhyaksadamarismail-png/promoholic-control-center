@@ -39,6 +39,7 @@ export function parseBulk(text: string, source: BulkSource): BulkRow[] {
       const n = Number(v.trim())
       if (!v.trim()) return
       if (!Number.isInteger(n) || n < 0) row.parseError = `Jumlah ${itemKey(k)} bukan angka bulat`
+      else if (itemKey(k) === 'BP') row.parseError = 'Baperan direstock lewat tab "Restock Baperan saja" (satu nomor = satu akun)'
       else row.items[itemKey(k)] = n
     }
 
@@ -71,12 +72,12 @@ export function parseBulk(text: string, source: BulkSource): BulkRow[] {
 export const BULK_EXAMPLE: Record<BulkSource, Record<BulkMode, string>> = {
   panel: {
     new_account: '123456\n234567\n345678',
-    add_stock: '195678 | BAPERAN=2\n195679 | BAPERAN=1',
-    extra_only: '- | BAPERAN=10\n195678 | BAPERAN=2',
+    add_stock: 'FR-0008 | D25=2\nSB-0011 | SB=1',
+    extra_only: '- | KODE=10',
   },
   vm: {
     new_account: 'VM-01 | 123456 | 0857-1234-5678\nVM-02 | 234567 | 0857-1234-5679',
-    add_stock: '195678 | BAPERAN=2',
-    extra_only: '195678 | BAPERAN=2',
+    add_stock: '195678 | KODE=2',
+    extra_only: '195678 | KODE=2',
   },
 }

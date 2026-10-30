@@ -51,13 +51,3 @@ export async function vmUpdateAccount(_: ActionResult | null, fd: FormData): Pro
   if (r.ok && str(fd, 'from_device') !== device) redirect(`/vm?device=${device}`)
   return r
 }
-
-export async function vmAddBaperan(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const id = uuid.safeParse(str(fd, 'account'))
-  const idem = uuid.safeParse(str(fd, 'idem'))
-  const qty = int(fd, 'qty') ?? 0
-  if (!id.success || !idem.success) return { ok: false, message: 'Permintaan tidak valid.' }
-  if (qty < 1 || qty > 20) return { ok: false, message: 'Jumlah Baperan 1–20.' }
-  const r = await callRpc('add_stock', { p_account: id.data, p_items: [{ type: 'BP', qty }], p_idem: idem.data }, '', PATHS)
-  return r.ok ? { ok: true, message: `${r.data} tercatat: ${qty} Baperan ditambahkan.` } : r
-}

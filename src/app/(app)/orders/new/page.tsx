@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, PageHeader, Pill, Table, inputCls } from '@/components/ui'
-import { jktDateTime, rupiah } from '@/lib/format'
+import { jktDate, jktDateTime, rupiah } from '@/lib/format'
+import { baperanStatus } from '@/lib/baperan'
 import { ORDER_STATUS } from '@/lib/inventory'
 import { cancelDraft, confirmDraft, requestCancel } from './actions'
 import { OrderForm } from './order-form'
@@ -17,7 +18,7 @@ export default async function NewOrderPage() {
   const [{ data: brands }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }, { data: orders }, { data: pending }] = await Promise.all([
     supabase.from('brands').select('id, name').order('name'),
     // View tersamar: staf tidak melihat nomor akun lengkap / device VM.
-    supabase.from('account_list').select('id, brand_id, account_code, source, active_until').order('account_code'),
+    supabase.from('account_list').select('id, brand_id, account_code, source, active_until, inventory, account_number').order('account_code'),
     supabase.from('vouchers').select('id, code, account_id, voucher_type_id, grp, allocated_cost').eq('status', 'available'),
     supabase.from('voucher_types').select('id, brand_id, code, name, grp, sort_order').eq('is_active', true),
     supabase.from('voucher_type_versions').select('id, voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
@@ -31,13 +32,16 @@ export default async function NewOrderPage() {
     supabase.from('approval_requests').select('target_id').eq('kind', 'order_cancel').eq('status', 'pending'),
   ])
   const pendingCancel = new Set((pending ?? []).map((p) => p.target_id))
-  // Voucher tambahan tanpa akun (restock "Baperan saja") ditampilkan sebagai pilihan "Baperan lepas" per brand.
+  // Akun Baperan yang masa aktifnya lewat tidak ditawarkan (database juga menolaknya).
+  const today = jktDate()
+  const expiredIds = new Set((accounts ?? []).filter((a) => a.inventory === 'baperan' && baperanStatus(a.active_until, today) === 'kedaluwarsa').map((a) => a.id))
+  // Voucher tambahan tanpa akun (data lama dari restock lepas) ditampilkan sebagai pilihan "Voucher lepas" per brand.
   const brandOfType = (id: string) => types?.find((t) => t.id === id)?.brand_id ?? ''
-  const vouchersWithLots = (vouchers ?? []).map((v) => (v.account_id ? v : { ...v, account_id: `lot:${brandOfType(v.voucher_type_id)}` }))
+  const vouchersWithLots = (vouchers ?? []).filter((v) => !expiredIds.has(v.account_id)).map((v) => (v.account_id ? v : { ...v, account_id: `lot:${brandOfType(v.voucher_type_id)}` }))
   const lotBrands = [...new Set(vouchersWithLots.filter((v) => v.account_id.startsWith('lot:')).map((v) => v.account_id.slice(4)))]
   const accountsWithLots = [
-    ...lotBrands.map((b) => ({ id: `lot:${b}`, brand_id: b, account_code: 'Baperan lepas', source: 'panel' as const, active_until: null })),
-    ...(accounts ?? []),
+    ...lotBrands.map((b) => ({ id: `lot:${b}`, brand_id: b, account_code: 'Voucher lepas', source: 'panel' as const, active_until: null, inventory: 'regular', account_number: null })),
+    ...(accounts ?? []).filter((a) => !expiredIds.has(a.id)),
   ]
   const list = (orders ?? []).map((o) => ({
     o,

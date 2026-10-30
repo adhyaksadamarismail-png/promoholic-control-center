@@ -9,7 +9,7 @@ import { BulkRestock } from '@/components/bulk-restock'
 import { BatchHistory } from '@/components/batch-history'
 import { dateLabel, jktDate } from '@/lib/format'
 import { VOUCHER_STATUS, currentVersion, ruleLabel, type Rule, type VoucherStatus } from '@/lib/inventory'
-import { addDevice, vmAddAccount, vmAddBaperan, vmUpdateAccount } from './actions'
+import { addDevice, vmAddAccount, vmUpdateAccount } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -111,7 +111,6 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
         <Stat label="Device aktif" value={devs.filter((d) => d.is_active).length} />
         <Stat label="Akun VM" value={vmAccounts.length} />
         <Stat label="Voucher utama tersedia" value={vmVouchers.filter((v) => v.grp === 'main' && v.status === 'available').length} />
-        <Stat label="Baperan tersedia" value={vmVouchers.filter((v) => v.grp === 'extra' && v.status === 'available').length} />
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -171,8 +170,8 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
                         </span>
                       </div>
                       <details className="text-sm">
-                        <summary className="cursor-pointer text-xs font-semibold text-orange-700">Ubah data / tambah Baperan</summary>
-                        <div className="mt-2 grid gap-3 md:grid-cols-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-orange-700">Ubah data akun</summary>
+                        <div className="mt-2 grid gap-3 md:max-w-md">
                           <ActionForm action={vmUpdateAccount} className="flex flex-col gap-2">
                             <input type="hidden" name="account" value={a.id} />
                             <input type="hidden" name="from_device" value={a.vm_device_id ?? ''} />
@@ -185,13 +184,6 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
                             </label>
                             <label className={labelCls}>Masa aktif<input type="date" name="active_until" defaultValue={a.active_until ?? ''} className={inputCls} /></label>
                             <SubmitButton variant="ghost">Simpan perubahan</SubmitButton>
-                          </ActionForm>
-                          <ActionForm action={vmAddBaperan} className="flex flex-col gap-2">
-                            <input type="hidden" name="account" value={a.id} />
-                            <input type="hidden" name="idem" value={randomUUID()} />
-                            <label className={labelCls}>Tambah Baperan<input name="qty" type="number" min={1} max={20} defaultValue={1} className={inputCls} /></label>
-                            <SubmitButton variant="ghost">Catat sebagai restock</SubmitButton>
-                            <span className="text-xs text-ink-500">Voucher A, B, C tidak dibuat ulang saat data akun diubah.</span>
                           </ActionForm>
                         </div>
                       </details>
@@ -211,7 +203,6 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
                 <label className={labelCls}>ID akun<input name="code" required minLength={3} maxLength={32} placeholder="mis. 195678" className={`${inputCls} font-mono uppercase`} autoComplete="off" /></label>
                 <label className={labelCls}>Nomor akun<input name="number" required inputMode="tel" placeholder="0857-xxxx-xxxx" className={inputCls} autoComplete="off" /></label>
                 <label className={labelCls}>Masa aktif (opsional)<input type="date" name="active_until" className={inputCls} /></label>
-                <label className={labelCls}>Voucher Baperan (opsional)<input type="number" name="qty_BP" min={0} max={20} defaultValue={0} className={inputCls} /></label>
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
                   <span className="text-sm font-semibold">Voucher utama · dibuat otomatis</span>
                   <div className="flex flex-wrap gap-2">

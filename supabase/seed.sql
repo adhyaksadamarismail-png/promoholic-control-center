@@ -109,12 +109,17 @@ begin
   perform public.vm_add_device('Device 3');
   perform public.vm_add_device('Device 4');
 
-  perform public.vm_add_account('VD-01', 'KK-0142', '0857-7001-0103', null, '{"BP": 1}', gen_random_uuid());
+  perform public.vm_add_account('VD-01', 'KK-0142', '0857-7001-0103', null, '{}', gen_random_uuid());
   perform public.vm_add_account('VD-01', 'KK-0150', '0857-7001-0101', '2026-11-05', '{}', gen_random_uuid());
-  perform public.vm_add_account('VD-01', 'KK-0151', '0857-7001-0102', '2026-11-05', '{"BP": 2}', gen_random_uuid());
-  perform public.vm_add_account('VD-02', 'KK-0192', '0857-7002-0201', '2026-11-03', '{"BP": 2}', gen_random_uuid());
-  perform public.vm_add_account('VD-02', 'KK-0201', '0857-7002-0202', '2026-11-09', '{"BP": 3}', gen_random_uuid());
+  perform public.vm_add_account('VD-01', 'KK-0151', '0857-7001-0102', '2026-11-05', '{}', gen_random_uuid());
+  perform public.vm_add_account('VD-02', 'KK-0192', '0857-7002-0201', '2026-11-03', '{}', gen_random_uuid());
+  perform public.vm_add_account('VD-02', 'KK-0201', '0857-7002-0202', '2026-11-09', '{}', gen_random_uuid());
   perform public.vm_add_account('VD-03', 'KK-0205', '0857-7003-0301', '2026-11-10', '{}', gen_random_uuid());
+
+  -- Inventaris Baperan terpisah: satu nomor = satu akun = 1 voucher Baperan (aktif, segera kedaluwarsa, kedaluwarsa).
+  perform public.restock_baperan('0812-5550-0001', '1234', 3000, current_date - 2, current_date + 25, 'Reseller Baperan', gen_random_uuid());
+  perform public.restock_baperan('0812-5550-0002', null, null, current_date - 5, current_date + 2, 'Reseller Baperan', gen_random_uuid());
+  perform public.restock_baperan('0812-5550-0003', '987654', 3000, current_date - 20, current_date - 1, 'Reseller Baperan', gen_random_uuid());
 
   perform public.panel_add_account('KK', 'KK-0187', null, '2026-10-29', '{}', gen_random_uuid());
   perform public.panel_add_account('KK', 'KK-0233', null, '2026-11-10', '{}', gen_random_uuid());

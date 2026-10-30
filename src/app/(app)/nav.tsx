@@ -26,7 +26,7 @@ export function SideNav({ staff, owner }: { staff: NavItem[]; owner: NavItem[] |
       key={n.href}
       href={n.href}
       aria-current={isActive(path, n.href) ? 'page' : undefined}
-      className="flex min-h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium hover:bg-navy-800 hover:text-white aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
+      className="btn-press flex min-h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium hover:bg-navy-800 hover:text-white aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
     >
       {n.label}
       <PendingDot />
@@ -52,17 +52,30 @@ export function SideNav({ staff, owner }: { staff: NavItem[]; owner: NavItem[] |
  */
 export function MobileNav({ logo, staff, owner, name, role }: { logo: React.ReactNode; staff: NavItem[]; owner: NavItem[] | null; name: string; role: string }) {
   const path = usePathname()
-  const [open, setOpen] = useState(false)
+  const [open, setOpenRaw] = useState(false)
+  const [closing, setClosing] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
+  // Tutup dengan animasi singkat; buka langsung.
+  const setOpen = (v: boolean | ((o: boolean) => boolean)) => {
+    const next = typeof v === 'function' ? v(open) : v
+    if (next) { setClosing(false); setOpenRaw(true) }
+    else if (open) setClosing(true)
+  }
+  useEffect(() => {
+    if (!closing) return
+    const t = window.setTimeout(() => { setOpenRaw(false); setClosing(false) }, 140)
+    return () => window.clearTimeout(t)
+  }, [closing])
 
   // Tutup saat pindah halaman.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setOpen(false), [path])
   // Escape menutup menu; gulir halaman dikunci selama menu terbuka.
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setOpen(false)
+        setClosing(true)
         button.current?.focus()
       }
     }
@@ -90,19 +103,19 @@ export function MobileNav({ logo, staff, owner, name, role }: { logo: React.Reac
           onClick={() => setOpen((v) => !v)}
           className="flex min-h-11 max-w-[55%] shrink-0 items-center gap-2 rounded-lg bg-navy-800 px-3 text-sm font-semibold text-white"
         >
-          <span className="truncate">{open ? 'Tutup menu' : (current?.label ?? 'Menu')}</span>
-          <span aria-hidden className={`text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
+          <span className="truncate">{open && !closing ? 'Tutup menu' : (current?.label ?? 'Menu')}</span>
+          <span aria-hidden className={`text-xs transition-transform duration-200 ${open && !closing ? 'rotate-180' : ''}`}>▾</span>
         </button>
       </header>
 
       {open && (
         <>
           {/* Backdrop menutupi konten & bilah tab bawah; ketuk untuk menutup. */}
-          <div className="fixed inset-0 z-40 bg-navy-900/50 md:hidden" aria-hidden onClick={() => setOpen(false)} />
+          <div className={`fixed inset-0 z-40 bg-navy-900/50 md:hidden ${closing ? 'animate-fade-out' : 'animate-fade-in'}`} aria-hidden onClick={() => setOpen(false)} />
           <nav
             id="mobile-menu"
             aria-label="Navigasi utama"
-            className="fixed right-3 top-[calc(3.75rem+env(safe-area-inset-top)+0.5rem)] z-50 flex max-h-[calc(100dvh-3.75rem-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1.5rem)] w-[min(18rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl bg-navy-900 shadow-2xl ring-1 ring-navy-700 md:hidden"
+            className={`${closing ? 'animate-menu-out' : 'animate-menu-in'} fixed right-3 top-[calc(3.75rem+env(safe-area-inset-top)+0.5rem)] z-50 flex max-h-[calc(100dvh-3.75rem-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1.5rem)] w-[min(18rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl bg-navy-900 shadow-2xl ring-1 ring-navy-700 md:hidden`}
           >
             <div className="shrink-0 border-b border-navy-700 px-4 py-3">
               <span className="block truncate text-sm font-semibold text-white">{name}</span>
@@ -119,7 +132,7 @@ export function MobileNav({ logo, staff, owner, name, role }: { logo: React.Reac
                       // Menu tetap terbuka dengan tanda memuat sampai halaman tujuan tampil (ditutup efek perubahan path).
                       onClick={() => isActive(path, n.href) && setOpen(false)}
                       aria-current={isActive(path, n.href) ? 'page' : undefined}
-                      className="flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-[#c5cbd9] aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
+                      className="btn-press flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-[#c5cbd9] active:bg-navy-800 aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
                     >
                       {n.label}
                       <PendingDot />

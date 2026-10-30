@@ -48,26 +48,27 @@ export async function panelAddStock(_: ActionResult | null, fd: FormData): Promi
   return r.ok ? { ok: true, message: `${r.data} tercatat. Voucher baru sudah masuk stok.`, data: r.data } : r
 }
 
-/** Restock voucher tambahan saja (mis. Baperan dari pihak lain): tanpa akun baru dan tanpa voucher utama. */
-export async function panelRestockExtra(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const type = uuid.safeParse(str(fd, 'type'))
+/** Restock Baperan: satu nomor telepon = satu akun Baperan dengan tepat 1 voucher. Aturan lengkap di database. */
+export async function panelRestockBaperan(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const idem = uuid.safeParse(str(fd, 'idem'))
-  const account = str(fd, 'account')
-  const qty = Number(str(fd, 'qty'))
+  const phone = str(fd, 'phone').replace(/\D/g, '').replace(/^62/, '0')
+  const pin = str(fd, 'pin')
   const costRaw = str(fd, 'unit_cost').replace(/[^\d]/g, '')
   const date = str(fd, 'received_on')
+  const until = str(fd, 'active_until')
   const source = str(fd, 'source_note')
-  if (!type.success) return { ok: false, message: 'Pilih jenis voucher.' }
   if (!idem.success) return { ok: false, message: 'Muat ulang halaman lalu coba lagi.' }
-  if (!Number.isInteger(qty) || qty < 1 || qty > 200) return { ok: false, message: 'Jumlah voucher 1–200.' }
-  if (account && !uuid.safeParse(account).success) return { ok: false, message: 'Akun tidak valid.' }
+  if (!/^08\d{8,11}$/.test(phone)) return { ok: false, message: 'Nomor telepon tidak valid (diawali 08, 10–13 digit).' }
+  if (pin && !/^\d{4,8}$/.test(pin)) return { ok: false, message: 'PIN harus 4–8 angka.' }
   if (!isYmd(date) || date > jktDate()) return { ok: false, message: 'Tanggal restock tidak valid.' }
+  if (!isYmd(until)) return { ok: false, message: 'Isi tanggal berakhir masa aktif.' }
+  if (until < date) return { ok: false, message: 'Masa aktif tidak boleh berakhir sebelum tanggal restock.' }
   if (source.length < 3) return { ok: false, message: 'Isi sumber pembelian / penerimaan.' }
-  const r = await callRpc('restock_extra_only', {
-    p_type: type.data, p_qty: qty, p_account: account || null,
+  const r = await callRpc('restock_baperan', {
+    p_phone: phone, p_pin: pin || null,
     // Kosong = modal belum diisi (bukan Rp0). Rp0 hanya bila memang gratis.
     p_unit_cost: costRaw === '' ? null : Number(costRaw),
-    p_source_note: source, p_received_on: date, p_idem: idem.data,
+    p_received_on: date, p_active_until: until, p_source_note: source, p_idem: idem.data,
   }, '', PATHS)
-  return r.ok ? { ok: true, message: `${r.data} tercatat: ${qty} voucher masuk stok${costRaw === '' ? ' (modal belum diisi)' : ''}.`, data: r.data } : r
+  return r.ok ? { ok: true, message: 'Akun Baperan tercatat.', data: r.data } : r
 }

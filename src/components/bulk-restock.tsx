@@ -24,10 +24,10 @@ type Result = { batch: string; new_accounts: number; vouchers: number; total_cos
 type AutoType = { brand_id: string; code: string; name: string; grp: string; auto_per_account: number | null }
 
 const MODES: { key: BulkMode; label: string; help: string }[] = [
-  { key: 'new_account', label: 'Akun baru', help: 'Cukup satu ID akun per baris. Voucher utama dibuat otomatis dari Konfigurasi Voucher; voucher tambahan hanya bila ditulis (mis. 123456 | BAPERAN=2).' },
-  { key: 'add_stock', label: 'Tambah voucher ke akun yang sudah ada', help: 'Hanya voucher tambahan; akun tidak dibuat ulang dan voucher utama tidak digandakan.' },
-  { key: 'extra_only', label: 'Restock Baperan saja', help: 'Tanpa akun baru dan tanpa voucher utama. ID akun boleh "-" untuk Baperan lepas.' },
+  { key: 'new_account', label: 'Akun baru', help: 'Cukup satu ID akun per baris. Voucher utama dibuat otomatis dari Konfigurasi Voucher; voucher lain hanya bila ditulis (mis. 123456 | D25=2).' },
+  { key: 'add_stock', label: 'Tambah voucher ke akun yang sudah ada', help: 'Hanya voucher yang diisi manual; akun tidak dibuat ulang dan voucher utama tidak digandakan.' },
 ]
+// Baperan tidak lewat Bulk Restock: satu nomor telepon = satu akun, direstock di tab "Restock Baperan saja".
 const input = 'min-h-11 w-full rounded-lg border border-[#dcd2bf] bg-white px-3 text-base outline-orange-500'
 const label = 'flex flex-col gap-1.5 text-sm font-semibold'
 /** Baris untuk server tanpa catatan kesalahan format dari browser. */
@@ -181,9 +181,9 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
       <fieldset disabled={busy || !hydrated} className="grid grid-cols-1 gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 lg:grid-cols-2">
         <div className="flex flex-col gap-1.5 lg:col-span-2">
           <span className="text-sm font-semibold">Jenis restock</span>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {MODES.map((m) => (
-              <label key={m.key} className={`flex cursor-pointer flex-col gap-0.5 rounded-xl border p-3 text-sm ${mode === m.key ? 'border-navy-900 bg-navy-100/60' : 'border-[#dcd2bf]'}`}>
+              <label key={m.key} className={`flex cursor-pointer flex-col gap-0.5 rounded-xl border p-3 text-sm transition-colors duration-150 ${mode === m.key ? 'border-navy-900 bg-navy-100/60' : 'border-[#dcd2bf]'}`}>
                 <span className="flex items-center gap-2 font-semibold">
                   <input type="radio" name="bulk-mode" checked={mode === m.key} onChange={() => { setMode(m.key); invalidate() }} />
                   {m.label}
@@ -239,9 +239,9 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
             className="w-full rounded-lg border border-[#dcd2bf] bg-white p-3 font-mono text-sm outline-orange-500"
           />
           <span className="text-xs font-normal text-ink-500">
-            Pemisah kolom: <code>|</code>, koma, titik koma, atau tab. Voucher ditulis <code>KODE=jumlah</code>, mis. <code>BAPERAN=2</code>.
+            Pemisah kolom: <code>|</code>, koma, titik koma, atau tab. Voucher ditulis <code>KODE=jumlah</code>, mis. <code>D25=2</code>. Baperan direstock di tab &quot;Restock Baperan saja&quot;.
             {source === 'vm' && ' Format VM: device | ID akun | nomor akun | voucher… (VM-01 dibaca sebagai VD-01; nomor wajib untuk akun baru).'}
-            {' '}CSV berheader juga diterima, mis. <code>akun,A,B,C,BAPERAN</code>.
+            {' '}CSV berheader juga diterima, mis. <code>akun,D25</code>.
           </span>
         </label>
         <div className="flex flex-wrap gap-2 lg:col-span-2">
@@ -251,7 +251,7 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
           </label>
           {fileName && <span className="flex items-center text-sm text-ink-500">{fileName}</span>}
           <button type="button" onClick={preview} disabled={!text.trim()} className="min-h-11 rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white disabled:bg-[#e7e2d8] disabled:text-[#6e7689]">
-            {busy && !checked ? 'Memvalidasi…' : 'Validasi Data & Proses Preview'}
+            {busy && !checked ? <span className="inline-flex items-center gap-2"><span className="spinner" aria-hidden />Memvalidasi…</span> : 'Validasi Data & Proses Preview'}
           </button>
           <button type="button" onClick={reset} className="min-h-11 rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">Batalkan</button>
         </div>
@@ -272,8 +272,15 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
       )}
       {message && <p role="alert" className={`rounded-lg px-3 py-2 text-sm ${message.ok ? 'bg-success-100 text-success-700' : 'bg-danger-100 text-[#7a1a12]'}`}>{message.text}</p>}
 
+      {busy && !checked && (
+        <section aria-busy="true" aria-label="Memvalidasi data" className="flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
+          <div className="skeleton h-5 w-40" />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{Array.from({ length: 6 }, (_, i) => <div key={i} className="skeleton h-16" />)}</div>
+          {Array.from({ length: 4 }, (_, i) => <div key={i} className="skeleton h-8" />)}
+        </section>
+      )}
       {checked && summary && (
-        <section className="flex min-w-0 flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
+        <section className="animate-enter flex min-w-0 flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
           <h2 className="font-display text-base font-semibold">Preview — belum disimpan</h2>
           <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {[
@@ -332,7 +339,7 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
           </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={confirm} disabled={busy || !valid.length} className="min-h-12 rounded-lg bg-orange-500 px-5 font-semibold text-navy-900 disabled:bg-[#e7e2d8] disabled:text-[#6e7689]">
-              {busy ? 'Menyimpan…' : `Konfirmasi Restock (${valid.length} baris)`}
+              {busy ? <span className="inline-flex items-center gap-2"><span className="spinner" aria-hidden />Menyimpan…</span> : `Konfirmasi Restock (${valid.length} baris)`}
             </button>
             <button type="button" onClick={reset} disabled={busy} className="min-h-12 rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">Batalkan</button>
           </div>

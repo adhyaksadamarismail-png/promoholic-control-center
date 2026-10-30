@@ -5,8 +5,8 @@ import { jktDate, jktTime } from '@/lib/format'
 import { PanelForm } from './panel-form'
 import { BulkRestock } from '@/components/bulk-restock'
 import { BatchHistory } from '@/components/batch-history'
-import { ExtraRestockForm } from './extra-form'
-import { accountKey } from '@/lib/inventory'
+import { BaperanRestockForm } from './baperan-form'
+import { accountKey, currentVersion } from '@/lib/inventory'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,9 +34,9 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
   const [{ data: brands }, { data: types }, { data: versions }, { data: accounts }, { data: vouchers }, { data: costs }, { data: credit }, { data: todays }, { data: profiles }] =
     await Promise.all([
       supabase.from('brands').select('id, name').order('name'),
-      supabase.from('voucher_types').select('id, brand_id, code, name, grp, auto_per_account, sort_order').eq('is_active', true),
+      supabase.from('voucher_types').select('id, brand_id, code, name, grp, auto_per_account, sort_order, is_baperan').eq('is_active', true),
       supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
-      supabase.from('account_list').select('id, brand_id, account_code, source').order('account_code'),
+      supabase.from('account_list').select('id, brand_id, account_code, source, inventory').order('account_code'),
       supabase.from('vouchers').select('account_id, voucher_type_id, slot'),
       supabase.from('brand_costs').select('brand_id, basis, credits_per_account, rp_per_voucher, effective_from').lte('effective_from', nowIso).order('effective_from', { ascending: false }),
       supabase.from('credit_prices').select('rp_per_credit').lte('effective_from', nowIso).order('effective_from', { ascending: false }).limit(1).maybeSingle(),
@@ -45,6 +45,10 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
       supabase.from('profiles').select('id, full_name'),
     ])
 
+  // Baperan punya alur & inventaris sendiri: tidak ditawarkan di form akun reguler maupun Bulk Restock.
+  const baperanType = (types ?? []).find((t) => t.is_baperan)
+  const regularTypes = (types ?? []).filter((t) => !t.is_baperan)
+  const regularAccounts = (accounts ?? []).filter((a) => a.source === 'panel' && a.inventory === 'regular')
   const maxSlots: Record<string, number> = {}
   ;(vouchers ?? []).forEach((v) => {
     const k = `${v.account_id}|${v.voucher_type_id}`
@@ -75,16 +79,14 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
             brands={brands ?? []}
             costMissing={(brands ?? []).filter((b) => !latest.some((c) => c.brand_id === b.id)).map((b) => b.id)}
             isOwner={isOwner}
-            autoTypes={types ?? []}
+            autoTypes={regularTypes}
           />
           <BatchHistory source="panel" />
         </>
       ) : mode === 'extra' ? (
-        <ExtraRestockForm
-          brands={brands ?? []}
-          types={(types ?? []).filter((t) => t.grp === 'extra' && t.auto_per_account === null)}
-          versions={versions ?? []}
-          accounts={(accounts ?? []).filter((a) => a.source === 'panel')}
+        <BaperanRestockForm
+          typeName={baperanType?.name ?? null}
+          rule={baperanType ? currentVersion(versions ?? [], baperanType.id) ?? null : null}
           today={today}
         />
       ) : (
@@ -92,9 +94,9 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
         key={mode}
         mode={mode}
         brands={brands ?? []}
-        types={types ?? []}
+        types={regularTypes}
         versions={versions ?? []}
-        accounts={(accounts ?? []).filter((a) => a.source === 'panel')}
+        accounts={regularAccounts}
         existingKeys={(accounts ?? []).map((a) => `${a.brand_id}|${accountKey(a.brand_id, a.account_code)}`)}
         maxSlots={maxSlots}
         costs={latest}

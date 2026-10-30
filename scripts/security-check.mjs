@@ -152,6 +152,18 @@ section('5. Staf memanggil fungsi khusus owner / internal')
   await expectDenied('staf menandai bukti sudah diperiksa', rani.rpc('mark_benefit_receipt_viewed', { p_claim: randomUUID() }))
   await expectDenied('staf tanpa izin restock Baperan saja', dimas.rpc('restock_extra_only', { p_type: randomUUID(), p_qty: 1, p_account: null, p_unit_cost: 0, p_source_note: 'uji', p_received_on: '2026-10-28', p_idem: randomUUID() }))
   await expectDenied('staf mengisi modal restock', rani.rpc('set_restock_unit_cost', { p_restock: randomUUID(), p_unit_cost: 0 }))
+  await expectDenied('staf tanpa izin restock Baperan', dimas.rpc('restock_baperan', { p_phone: '081255509999', p_pin: null, p_unit_cost: null, p_received_on: '2026-10-28', p_active_until: '2026-12-31', p_source_note: 'uji', p_idem: randomUUID() }))
+  const { data: bpAcc } = await owner.from('accounts').select('id').eq('inventory', 'baperan').not('pin', 'is', null).limit(1).single()
+  await expectDenied('staf mengubah masa aktif / PIN Baperan', rani.rpc('owner_update_baperan', { p_account: bpAcc.id, p_active_until: '2030-01-01', p_pin: null, p_reason: 'uji' }))
+  const { data: pinRaw } = await rani.from('accounts').select('pin').eq('id', bpAcc.id)
+  !pinRaw?.length ? ok('staf tidak bisa membaca PIN dari tabel akun') : bad('PIN Baperan terbaca staf lewat tabel akun')
+  const { data: pinView } = await rani.from('account_list').select('pin, account_number').eq('id', bpAcc.id).single()
+  pinView && pinView.pin === null && /^08\d+$/.test(pinView.account_number) ? ok('staf: nomor Baperan utuh, PIN kosong di view') : bad('view Baperan staf: ' + JSON.stringify(pinView))
+  const { data: ownerView } = await owner.from('account_list').select('pin').eq('id', bpAcc.id).single()
+  ownerView?.pin ? ok('owner melihat PIN Baperan') : bad('owner tidak melihat PIN')
+  const { error: upErr } = await rani.from('accounts').update({ active_until: '2030-01-01' }).eq('id', bpAcc.id)
+  const { data: after } = await owner.from('accounts').select('active_until').eq('id', bpAcc.id).single()
+  after?.active_until !== '2030-01-01' ? ok('staf tidak bisa mengubah masa aktif langsung' + (upErr ? ` (${upErr.code})` : '')) : bad('masa aktif diubah staf')
 }
 
 // ───────────────────────────────────────────────────────────
