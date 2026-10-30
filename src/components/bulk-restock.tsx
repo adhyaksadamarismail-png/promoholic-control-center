@@ -3,8 +3,10 @@
 import Link from 'next/link'
 import { useRef, useState, useTransition } from 'react'
 import { useHydrated } from '@/components/action-form'
-import { BULK_EXAMPLE, parseBulk, type BulkMode, type BulkRow, type BulkSource } from '@/lib/bulk'
-import { commitBulk, previewBulk } from '@/app/(app)/panel/bulk-actions'
+import { BULK_EXAMPLE, parseBaperan, parseBulk, type BaperanRow, type BulkMode, type BulkRow, type BulkSource } from '@/lib/bulk'
+import { commitBulk, commitBulkBaperan, previewBulk, previewBulkBaperan } from '@/app/(app)/panel/bulk-actions'
+import { phoneLabel } from '@/lib/baperan'
+import { dateLabel } from '@/lib/format'
 
 type Brand = { id: string; name: string }
 type Checked = {
@@ -18,6 +20,7 @@ type Checked = {
   number: string | null
   counts: Record<string, number>
   total: number
+  pin_set?: boolean // hanya mode Baperan; nilai PIN tidak pernah dikembalikan server
 }
 type ResultRow = { restock: string; account: string | null; account_key: string | null; items: { type: string; qty: number }[]; vouchers: number }
 type Result = { batch: string; new_accounts: number; vouchers: number; total_cost: number; cost_unknown: number; repeated: boolean; rows: ResultRow[] }
@@ -26,8 +29,8 @@ type AutoType = { brand_id: string; code: string; name: string; grp: string; aut
 const MODES: { key: BulkMode; label: string; help: string }[] = [
   { key: 'new_account', label: 'Akun baru', help: 'Cukup satu ID akun per baris. Voucher utama dibuat otomatis dari Konfigurasi Voucher; voucher lain hanya bila ditulis (mis. 123456 | D25=2).' },
   { key: 'add_stock', label: 'Tambah voucher ke akun yang sudah ada', help: 'Hanya voucher yang diisi manual; akun tidak dibuat ulang dan voucher utama tidak digandakan.' },
+  { key: 'baperan', label: 'Baperan', help: 'Satu baris = nomor telepon | PIN (PIN boleh kosong). Setiap nomor jadi 1 akun Baperan dengan 1 voucher. Terpisah dari akun reguler.' },
 ]
-// Baperan tidak lewat Bulk Restock: satu nomor telepon = satu akun, direstock di tab "Restock Baperan saja".
 const input = 'min-h-11 w-full rounded-lg border border-[#dcd2bf] bg-white px-3 text-base outline-orange-500'
 const label = 'flex flex-col gap-1.5 text-sm font-semibold'
 /** Baris untuk server tanpa catatan kesalahan format dari browser. */
@@ -35,15 +38,21 @@ const forServer = (r: BulkRow) => ({ line: r.line, device: r.device, code: r.cod
 const rp = (n: number) => 'Rp' + Math.round(n).toLocaleString('id-ID')
 
 /** Bulk Restock: tempel teks / unggah CSV → preview tervalidasi server → konfirmasi (satu batch atomik). */
-export function BulkRestock({ source, brands, costMissing = [], isOwner = false, autoTypes = [] }: {
+export function BulkRestock({ source, brands, costMissing = [], isOwner = false, autoTypes = [], initialMode = 'new_account', today = '' }: {
   source: BulkSource
+  initialMode?: BulkMode
+  today?: string // tanggal Jakarta (YYYY-MM-DD) untuk default tanggal restock Baperan
   brands: Brand[]
   autoTypes?: AutoType[] // jenis voucher aktif brand terkait, dari database (bukan daftar tetap)
   costMissing?: string[] // brand yang belum punya modal berlaku (Panel: semua brand; VM: brand VM)
   isOwner?: boolean
 }) {
   const hydrated = useHydrated()
-  const [mode, setMode] = useState<BulkMode>('new_account')
+  const [mode, setMode] = useState<BulkMode>(source === 'panel' ? initialMode : 'new_account')
+  const baperan = mode === 'baperan'
+  const [activeUntil, setActiveUntil] = useState('')
+  const [receivedOn, setReceivedOn] = useState(today)
+  const [bParsed, setBParsed] = useState<BaperanRow[]>([])
   const [brand, setBrand] = useState(source === 'panel' ? (brands.find((b) => b.id === 'KK')?.id ?? brands[0]?.id ?? '') : '')
   const [text, setText] = useState('')
   const [fileName, setFileName] = useState('')
@@ -70,8 +79,8 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
   }))
   const invalidate = () => { setChecked(null); setMessage(null) }
   function reset() {
-    setText(''); setFileName(''); setParsed([]); setChecked(null); setMessage(null); setResult(null)
-    setUnitCost(''); setSourceNote(''); setIdem(crypto.randomUUID())
+    setText(''); setFileName(''); setParsed([]); setBParsed([]); setChecked(null); setMessage(null); setResult(null)
+    setUnitCost(''); setSourceNote(''); setActiveUntil(''); setReceivedOn(today); setIdem(crypto.randomUUID())
     if (fileRef.current) fileRef.current.value = ''
   }
   async function readFile(f: File | undefined) {
@@ -82,7 +91,26 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
     invalidate()
   }
 
+  function previewBaperan() {
+    const rows = parseBaperan(text)
+    setBParsed(rows)
+    setResult(null)
+    if (!rows.length) return setMessage({ ok: false, text: 'Belum ada baris data.' })
+    if (rows.length > 300) return setMessage({ ok: false, text: 'Maksimal 300 baris per batch.' })
+    start(async () => {
+      const r = await previewBulkBaperan(rows.map((x) => ({ line: x.line, number: x.number, pin: x.pin })))
+      if (!r.ok) return setMessage({ ok: false, text: r.message })
+      const server = r.data as Checked[]
+      setChecked(server.map((c) => {
+        const p = rows.find((x) => x.line === c.line)
+        return p?.parseError && c.ok ? { ...c, ok: false, error: p.parseError } : c
+      }))
+      setMessage(null)
+    })
+  }
+
   function preview() {
+    if (baperan) return previewBaperan()
     const rows = parseBulk(text, source)
     setParsed(rows)
     setResult(null)
@@ -104,7 +132,19 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
   const valid = checked?.filter((c) => c.ok) ?? []
   function confirm() {
     if (!valid.length || sending.current) return
+    if (baperan && !activeUntil) return setMessage({ ok: false, text: 'Isi tanggal berakhir masa aktif untuk batch ini.' })
     sending.current = true
+    if (baperan) {
+      const rows = bParsed.filter((p) => valid.some((v) => v.line === p.line)).map((x) => ({ line: x.line, number: x.number, pin: x.pin }))
+      start(async () => {
+        const r = await commitBulkBaperan({ rows, activeUntil, receivedOn, unitCost: unitCost === '' ? null : Number(unitCost), sourceNote, idem })
+        sending.current = false
+        if (!r.ok) return setMessage({ ok: false, text: r.message })
+        setResult(r.data as Result)
+        setMessage(null)
+      })
+      return
+    }
     const rows = parsed.filter((p) => valid.some((v) => v.line === p.line)).map(forServer)
     start(async () => {
       const r = await commitBulk({
@@ -123,6 +163,7 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
     return (order.indexOf(a) + 1 || 9) - (order.indexOf(b) + 1 || 9) || a.localeCompare(b)
   })
   const summary = checked && {
+    baperan,
     rows: checked.length,
     newAcc: valid.filter((c) => c.kind === 'new').length,
     existing: valid.filter((c) => c.kind === 'existing').length,
@@ -139,23 +180,25 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
           {result.repeated && <span className="block text-sm font-normal">Kiriman ganda terdeteksi — data hanya disimpan sekali.</span>}
         </h2>
         <p className="text-sm text-success-700">
-          {result.new_accounts} akun baru · {result.vouchers} voucher masuk · modal {rp(Number(result.total_cost))}
+          {result.new_accounts} akun {baperan ? 'Baperan' : 'baru'} · {result.vouchers} voucher masuk · modal {rp(Number(result.total_cost))}
+          {baperan && activeUntil && ` · aktif s/d ${dateLabel(activeUntil, 'long')}`}
           {result.cost_unknown ? ` · ${result.cost_unknown} voucher modal belum diisi` : ''}
         </p>
         <div className="max-h-96 overflow-auto rounded-xl border border-success-700/30 bg-white">
           <table className="w-full text-left text-sm">
             <thead className="sticky top-0 bg-white text-xs uppercase tracking-[0.05em] text-ink-500">
-              <tr><th className="px-3 py-2">Baris</th><th className="px-3 py-2">ID akun</th><th className="px-3 py-2">Hasil</th><th className="px-3 py-2">Keterangan</th></tr>
+              <tr><th className="px-3 py-2">Baris</th><th className="px-3 py-2">{baperan ? 'Nomor telepon' : 'ID akun'}</th><th className="px-3 py-2">Hasil</th><th className="px-3 py-2">Keterangan</th></tr>
             </thead>
             <tbody>
               {(checked ?? []).map((c) => {
                 const key = c.code && c.brand ? c.code.replace(new RegExp(`^${c.brand}-`), '') : null // ID tanpa prefix brand, seperti account_key
-                const saved = c.ok ? (result.rows ?? []).filter((r) => (r.account_key ?? null) === key) : []
+                // Baperan: akun dibuat berurutan sesuai baris valid, jadi hasil ke-n = baris valid ke-n.
+                const saved = !c.ok ? [] : baperan ? [result.rows?.[valid.findIndex((v) => v.line === c.line)]].filter((r): r is ResultRow => !!r) : (result.rows ?? []).filter((r) => (r.account_key ?? null) === key)
                 const dup = !c.ok && /duplikat|sudah terdaftar|sudah dipakai/i.test(c.error ?? '')
                 return (
                   <tr key={c.line} className="border-t border-[#f1eadc]">
                     <td className="px-3 py-2">{c.line}</td>
-                    <td className="px-3 py-2 font-mono text-[13px]">{c.code ?? 'Tanpa akun'}</td>
+                    <td className="px-3 py-2 font-mono text-[13px]">{baperan ? phoneLabel(c.number ?? bParsed.find((p) => p.line === c.line)?.number) : c.code ?? 'Tanpa akun'}</td>
                     <td className="px-3 py-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${c.ok ? 'bg-success-100 text-success-700' : dup ? 'bg-warning-100 text-warning-700' : 'bg-danger-100 text-danger-700'}`}>
                         {c.ok ? 'Berhasil' : dup ? 'Duplikat' : 'Gagal'}
@@ -163,7 +206,9 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
                     </td>
                     <td className="px-3 py-2 text-xs">
                       {c.ok
-                        ? saved.map((r) => `${r.restock}: ${r.items.map((i) => `${i.type}×${i.qty}`).join(', ')}`).join(' · ') || `${c.total} voucher`
+                        ? baperan
+                          ? saved.map((r) => `${r.account} · ${r.restock} · 1 voucher Baperan`).join(' · ') || '1 voucher Baperan'
+                          : saved.map((r) => `${r.restock}: ${r.items.map((i) => `${i.type}×${i.qty}`).join(', ')}`).join(' · ') || `${c.total} voucher`
                         : `Tidak disimpan — ${c.error}`}
                     </td>
                   </tr>
@@ -181,8 +226,8 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
       <fieldset disabled={busy || !hydrated} className="grid grid-cols-1 gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 lg:grid-cols-2">
         <div className="flex flex-col gap-1.5 lg:col-span-2">
           <span className="text-sm font-semibold">Jenis restock</span>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {MODES.map((m) => (
+          <div className={`grid grid-cols-1 gap-2 ${source === 'panel' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+            {MODES.filter((m) => source === 'panel' || m.key !== 'baperan').map((m) => (
               <label key={m.key} className={`flex cursor-pointer flex-col gap-0.5 rounded-xl border p-3 text-sm transition-colors duration-150 ${mode === m.key ? 'border-navy-900 bg-navy-100/60' : 'border-[#dcd2bf]'}`}>
                 <span className="flex items-center gap-2 font-semibold">
                   <input type="radio" name="bulk-mode" checked={mode === m.key} onChange={() => { setMode(m.key); invalidate() }} />
@@ -193,7 +238,7 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
             ))}
           </div>
         </div>
-        {source === 'panel' && (
+        {source === 'panel' && !baperan && (
           <label className={label}>
             Brand
             <select value={brand} onChange={(e) => { setBrand(e.target.value); invalidate() }} className={input}>
@@ -201,6 +246,30 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
             </select>
             <span className="text-xs font-normal text-ink-500">Voucher dibuat mengikuti konfigurasi brand ini; jenis yang tidak ada di brand ditolak.</span>
           </label>
+        )}
+        {baperan && (
+          <>
+            <label className={label}>
+              Tanggal berakhir masa aktif (seluruh batch)
+              <input type="date" required value={activeUntil} min={receivedOn || undefined} onChange={(e) => setActiveUntil(e.target.value)} className={`${input} h-11 appearance-none`} />
+              <span className="text-xs font-normal text-ink-500">{activeUntil ? `Semua akun aktif sampai ${dateLabel(activeUntil, 'long')}` : 'Wajib sebelum menyimpan.'}</span>
+            </label>
+            <label className={label}>
+              Tanggal restock
+              <input type="date" required value={receivedOn} max={today || undefined} onChange={(e) => setReceivedOn(e.target.value)} className={`${input} h-11 appearance-none`} />
+              <span className="text-xs font-normal text-ink-500">Berlaku untuk seluruh batch.</span>
+            </label>
+            <label className={label}>
+              Modal per voucher (Rp, opsional)
+              <input value={unitCost} inputMode="numeric" onChange={(e) => setUnitCost(e.target.value.replace(/\D/g, ''))} placeholder="Kosong = belum diisi" className={input} />
+              <span className="text-xs font-normal text-ink-500">Rp0 bila gratis. Kosong = belum diisi, bukan Rp0.</span>
+            </label>
+            <label className={label}>
+              Sumber pembelian / penerimaan (opsional)
+              <input value={sourceNote} onChange={(e) => setSourceNote(e.target.value)} placeholder="mis. Reseller A" className={input} />
+              <span className="text-xs font-normal text-ink-500">Berlaku untuk seluruh batch.</span>
+            </label>
+          </>
         )}
         {mode === 'extra_only' && (
           <>
@@ -229,20 +298,27 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
           </div>
         )}
         <label className={`${label} lg:col-span-2`}>
-          Data (satu akun per baris)
+          {baperan ? 'Data (satu nomor per baris: nomor telepon | PIN)' : 'Data (satu akun per baris)'}
           <textarea
             value={text}
             onChange={(e) => { setText(e.target.value); setFileName(''); invalidate() }}
             rows={7}
             spellCheck={false}
-            placeholder={BULK_EXAMPLE[source][mode]}
+            placeholder={BULK_EXAMPLE[source][mode] || undefined}
             className="w-full rounded-lg border border-[#dcd2bf] bg-white p-3 font-mono text-sm outline-orange-500"
           />
+          {baperan ? (
+            <span className="text-xs font-normal text-ink-500">
+              Pemisah kolom: <code>|</code>, koma, titik koma, atau tab. PIN boleh kosong (mis. <code>081234567891 |</code>). Nomor yang sudah terdaftar atau ganda
+              di batch ditolak. CSV <code>nomor,pin</code> juga diterima.
+            </span>
+          ) : (
           <span className="text-xs font-normal text-ink-500">
             Pemisah kolom: <code>|</code>, koma, titik koma, atau tab. Voucher ditulis <code>KODE=jumlah</code>, mis. <code>D25=2</code>. Baperan direstock di tab &quot;Restock Baperan saja&quot;.
             {source === 'vm' && ' Format VM: device | ID akun | nomor akun | voucher… (VM-01 dibaca sebagai VD-01; nomor wajib untuk akun baru).'}
             {' '}CSV berheader juga diterima, mis. <code>akun,D25</code>.
           </span>
+          )}
         </label>
         <div className="flex flex-wrap gap-2 lg:col-span-2">
           <input ref={fileRef} id={`csv-${source}`} type="file" accept=".csv,text/csv,text/plain" className="sr-only" onChange={(e) => readFile(e.target.files?.[0])} />
@@ -283,14 +359,24 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
         <section className="animate-enter flex min-w-0 flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
           <h2 className="font-display text-base font-semibold">Preview — belum disimpan</h2>
           <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            {[
-              ['Total baris', summary.rows],
-              ['Akun baru', summary.newAcc],
-              ['Akun ditambah voucher', summary.existing],
-              ['Total voucher masuk', summary.vouchers],
-              ['Baris valid', valid.length],
-              ['Ditolak', `${summary.rejected}${summary.dup ? ` (${summary.dup} duplikat)` : ''}`],
-            ].map(([k, v]) => (
+            {(summary.baperan
+              ? [
+                  ['Total baris', summary.rows],
+                  ['Akun Baperan dibuat', summary.newAcc],
+                  ['Voucher Baperan', summary.vouchers],
+                  ['Aktif sampai', activeUntil ? dateLabel(activeUntil) : 'Belum diisi'],
+                  ['Baris valid', valid.length],
+                  ['Ditolak', `${summary.rejected}${summary.dup ? ` (${summary.dup} duplikat)` : ''}`],
+                ]
+              : [
+                  ['Total baris', summary.rows],
+                  ['Akun baru', summary.newAcc],
+                  ['Akun ditambah voucher', summary.existing],
+                  ['Total voucher masuk', summary.vouchers],
+                  ['Baris valid', valid.length],
+                  ['Ditolak', `${summary.rejected}${summary.dup ? ` (${summary.dup} duplikat)` : ''}`],
+                ]
+            ).map(([k, v]) => (
               <div key={k as string} className="rounded-xl bg-cream-100 p-3">
                 <dt className="text-[11px] font-bold uppercase tracking-[0.05em] text-ink-500">{k}</dt>
                 <dd className="font-display text-lg font-bold">{v}</dd>
@@ -303,8 +389,17 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
                 <tr className="border-b border-cream-300 text-left text-xs font-bold uppercase tracking-[0.05em] text-ink-500">
                   <th className="px-2 py-2">Baris</th>
                   {source === 'vm' && <th className="px-2 py-2">Device</th>}
-                  <th className="px-2 py-2">ID akun</th>
-                  <th className="px-2 py-2">Brand</th>
+                  {baperan ? (
+                    <>
+                      <th className="px-2 py-2">Nomor telepon</th>
+                      <th className="px-2 py-2">PIN</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="px-2 py-2">ID akun</th>
+                      <th className="px-2 py-2">Brand</th>
+                    </>
+                  )}
                   {typeCols.map((t) => <th key={t} className="px-2 py-2 text-right">{t === 'BP' ? 'Baperan' : t}</th>)}
                   <th className="px-2 py-2 text-right">Total</th>
                   <th className="px-2 py-2">Status</th>
@@ -315,14 +410,23 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
                   <tr key={c.line} className={`border-b border-[#f1eadc] ${c.ok ? '' : 'bg-danger-100/50'}`}>
                     <td className="px-2 py-2">{c.line}</td>
                     {source === 'vm' && <td className="px-2 py-2 font-mono text-[13px]">{c.device ?? '—'}</td>}
-                    <td className="whitespace-nowrap px-2 py-2 font-mono text-[13px]">{c.code ?? (c.kind === 'lot' ? 'Lepas' : '—')}</td>
-                    <td className="px-2 py-2">{c.brand ?? '—'}</td>
+                    {baperan ? (
+                      <>
+                        <td className="whitespace-nowrap px-2 py-2 font-mono text-[13px]">{phoneLabel(c.number ?? bParsed.find((p) => p.line === c.line)?.number)}</td>
+                        <td className="px-2 py-2">{c.pin_set ? 'Diisi' : '—'}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="whitespace-nowrap px-2 py-2 font-mono text-[13px]">{c.code ?? (c.kind === 'lot' ? 'Lepas' : '—')}</td>
+                        <td className="px-2 py-2">{c.brand ?? '—'}</td>
+                      </>
+                    )}
                     {typeCols.map((t) => <td key={t} className="px-2 py-2 text-right">{c.counts[t] ?? 0}</td>)}
                     <td className="px-2 py-2 text-right font-semibold">{c.total}</td>
                     <td className="px-2 py-2">
                       {c.ok ? (
                         <span className="rounded-full bg-success-100 px-2 py-0.5 text-xs font-bold text-success-700">
-                          {c.kind === 'new' ? 'Valid · akun baru' : c.kind === 'lot' ? 'Valid · lepas' : 'Valid · akun ada'}
+                          {baperan ? 'Valid · akun Baperan baru' : c.kind === 'new' ? 'Valid · akun baru' : c.kind === 'lot' ? 'Valid · lepas' : 'Valid · akun ada'}
                         </span>
                       ) : (
                         <span className="text-xs font-semibold text-danger-700">{c.error}</span>
@@ -335,10 +439,12 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
           </div>
           <p className="text-xs text-ink-500">
             Hanya baris valid yang disimpan, dalam satu batch atomik: bila satu baris gagal saat disimpan, seluruh batch dibatalkan.
-            Modal dihitung server dari konfigurasi Modal per Brand yang berlaku saat disimpan.
+            {baperan
+              ? ' Masa aktif, tanggal restock, modal, dan sumber berlaku untuk seluruh akun di batch ini.'
+              : ' Modal dihitung server dari konfigurasi Modal per Brand yang berlaku saat disimpan.'}
           </p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={confirm} disabled={busy || !valid.length} className="min-h-12 rounded-lg bg-orange-500 px-5 font-semibold text-navy-900 disabled:bg-[#e7e2d8] disabled:text-[#6e7689]">
+            <button type="button" onClick={confirm} disabled={busy || !valid.length || (baperan && !activeUntil)} className="min-h-12 rounded-lg bg-orange-500 px-5 font-semibold text-navy-900 disabled:bg-[#e7e2d8] disabled:text-[#6e7689]">
               {busy ? <span className="inline-flex items-center gap-2"><span className="spinner" aria-hidden />Menyimpan…</span> : `Konfirmasi Restock (${valid.length} baris)`}
             </button>
             <button type="button" onClick={reset} disabled={busy} className="min-h-12 rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">Batalkan</button>

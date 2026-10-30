@@ -63,12 +63,11 @@ export async function panelRestockBaperan(_: ActionResult | null, fd: FormData):
   if (!isYmd(date) || date > jktDate()) return { ok: false, message: 'Tanggal restock tidak valid.' }
   if (!isYmd(until)) return { ok: false, message: 'Isi tanggal berakhir masa aktif.' }
   if (until < date) return { ok: false, message: 'Masa aktif tidak boleh berakhir sebelum tanggal restock.' }
-  if (source.length < 3) return { ok: false, message: 'Isi sumber pembelian / penerimaan.' }
   const r = await callRpc('restock_baperan', {
     p_phone: phone, p_pin: pin || null,
     // Kosong = modal belum diisi (bukan Rp0). Rp0 hanya bila memang gratis.
     p_unit_cost: costRaw === '' ? null : Number(costRaw),
-    p_received_on: date, p_active_until: until, p_source_note: source, p_idem: idem.data,
+    p_received_on: date, p_active_until: until, p_source_note: source || null, p_idem: idem.data,
   }, '', PATHS)
   return r.ok ? { ok: true, message: 'Akun Baperan tercatat.', data: r.data } : r
 }

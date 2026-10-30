@@ -68,8 +68,8 @@ export async function BaperanList({ supabase, isOwner, f }: { supabase: Supabase
         <Link href="/accounts?view=baperan" className="flex min-h-11 items-center px-2 text-sm font-semibold text-orange-700">Hapus filter</Link>
       </form>
 
-      {/* HP: kartu per akun. */}
-      <ul className="flex flex-col gap-2 md:hidden">
+      {/* HP & tablet: kartu per akun (tabel lebar baru dipakai di desktop). */}
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:hidden">
         {filtered.map((r) => {
           const st = BAPERAN_STATUS[r.status]
           return (
@@ -91,6 +91,11 @@ export async function BaperanList({ supabase, isOwner, f }: { supabase: Supabase
                 Restock {r.restock?.received_on ? dateLabel(r.restock.received_on) : '—'} · aktif s/d <b className="text-navy-900">{dateLabel(r.active_until, 'long')}</b> ({daysLeftLabel(r.active_until, today)})
               </span>
               <span className="text-xs text-ink-500">Voucher {r.voucher ? `${r.voucher.code} · ${VOUCHER_STATUS[r.voucher.status].label}` : '—'}</span>
+              {isOwner && (
+                <span className="text-xs text-ink-500">
+                  Modal {r.voucher?.allocated_cost === null || r.voucher?.allocated_cost === undefined ? <span className="text-warning-700">belum diisi</span> : rupiah(r.voucher.allocated_cost)}
+                </span>
+              )}
               {isOwner && editForm(r)}
             </li>
           )
@@ -98,9 +103,9 @@ export async function BaperanList({ supabase, isOwner, f }: { supabase: Supabase
         {!filtered.length && <li className="rounded-xl bg-white p-4 text-sm text-ink-500">Tidak ada akun Baperan yang cocok.</li>}
       </ul>
 
-      <section className="hidden rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 md:block">
+      <section className="hidden rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 lg:block">
         <Table
-          head={['Akun', 'Nomor telepon', ...(isOwner ? ['PIN'] : []), isOwner ? 'Restock · modal' : 'Restock', 'Aktif sampai', 'Status · voucher']}
+          head={['Akun', 'Nomor telepon', ...(isOwner ? ['PIN'] : []), isOwner ? 'Restock · modal' : 'Restock', 'Aktif sampai', 'Status · ID voucher']}
           empty="Tidak ada akun Baperan yang cocok."
         >
           {filtered.map((r) => {

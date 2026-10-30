@@ -2,7 +2,7 @@ import { createSessionClient } from '@/lib/supabase/server'
 import { Card, Pill, Table } from '@/components/ui'
 import { jktDateTime, rupiah } from '@/lib/format'
 
-const MODE: Record<string, string> = { new_account: 'Akun baru', add_stock: 'Tambah voucher', extra_only: 'Baperan saja' }
+const MODE: Record<string, string> = { new_account: 'Akun baru', add_stock: 'Tambah voucher', extra_only: 'Baperan saja', baperan: 'Baperan' }
 
 /** Riwayat batch bulk restock (RLS: staf hanya batch Panel; owner semua). Detail per batch berisi akun & voucher. */
 export async function BatchHistory({ source }: { source: 'panel' | 'vm' }) {

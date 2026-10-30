@@ -2,7 +2,7 @@
 // (akun terdaftar, duplikat, device, nomor, aturan brand) selalu diulang di database.
 
 export type BulkSource = 'panel' | 'vm'
-export type BulkMode = 'new_account' | 'add_stock' | 'extra_only'
+export type BulkMode = 'new_account' | 'add_stock' | 'extra_only' | 'baperan'
 export type BulkRow = { line: number; device: string | null; code: string | null; number: string | null; items: Record<string, number>; parseError?: string }
 
 const ITEM_ALIAS: Record<string, string> = { BAPERAN: 'BP' }
@@ -74,10 +74,32 @@ export const BULK_EXAMPLE: Record<BulkSource, Record<BulkMode, string>> = {
     new_account: '123456\n234567\n345678',
     add_stock: 'FR-0008 | D25=2\nSB-0011 | SB=1',
     extra_only: '- | KODE=10',
+    baperan: '081234567890 | 123456\n081234567891 |\n081234567892 | 654321',
   },
   vm: {
     new_account: 'VM-01 | 123456 | 0857-1234-5678\nVM-02 | 234567 | 0857-1234-5679',
     add_stock: '195678 | KODE=2',
     extra_only: '195678 | KODE=2',
+    baperan: '',
   },
+}
+
+/** Bulk Baperan: satu baris = nomor telepon | PIN (PIN boleh kosong). Validasi sebenarnya di database. */
+export type BaperanRow = { line: number; number: string; pin: string | null; parseError?: string }
+export const BAPERAN_EXAMPLE = '081234567890 | 123456\n081234567891 |\n081234567892 | 654321'
+
+export function parseBaperan(text: string): BaperanRow[] {
+  const rows: BaperanRow[] = []
+  text.replace(/^﻿/, '').split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) return
+    const [number = '', pin = '', ...rest] = splitLine(line)
+    // Baris judul CSV (mis. "nomor,pin") dilewati.
+    if (!rows.length && /^[a-z_ ]+$/i.test(number) && !/\d/.test(number)) return
+    const row: BaperanRow = { line: i + 1, number, pin: pin || null }
+    if (rest.some((t) => t)) row.parseError = 'Kolom berlebih: format nomor | PIN'
+    else if (pin && !/^\d{4,8}$/.test(pin)) row.parseError = 'PIN harus 4–8 angka'
+    rows.push(row)
+  })
+  return rows
 }

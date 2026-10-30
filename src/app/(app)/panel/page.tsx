@@ -12,8 +12,8 @@ export const dynamic = 'force-dynamic'
 
 type Item = { type: string; qty: number }
 
-export default async function PanelPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
-  const m = (await searchParams).mode
+export default async function PanelPage({ searchParams }: { searchParams: Promise<{ mode?: string; bulk?: string }> }) {
+  const { mode: m, bulk } = await searchParams
   const mode = m === 'add' || m === 'extra' || m === 'bulk' ? m : 'new'
   const viewer = await getViewer()
   if (!viewer) redirect('/login')
@@ -80,6 +80,8 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
             costMissing={(brands ?? []).filter((b) => !latest.some((c) => c.brand_id === b.id)).map((b) => b.id)}
             isOwner={isOwner}
             autoTypes={regularTypes}
+            initialMode={bulk === 'baperan' ? 'baperan' : 'new_account'}
+            today={today}
           />
           <BatchHistory source="panel" />
         </>

@@ -351,6 +351,58 @@ console.log('\nInventaris Baperan terpisah')
     q(`select public.record_order($1,'Uji','081234567890',null,30000,25000,0,null,null,false,gen_random_uuid())`, [expired.vid])))
 }
 
+console.log('\nBulk Restock Baperan & ketentuan Rp17.000')
+{
+  const rows = (arr) => JSON.stringify(arr)
+  await expectOk('restock satu akun tanpa sumber pembelian', () => as('rani', () =>
+    q(`select public.restock_baperan('081255500120', null, null, $1::date, '2026-12-31', null, gen_random_uuid())`, [today])))
+  const val = await as('rani', () => q(`select public.bulk_restock_baperan_validate($1::jsonb) v`, [rows([
+    { line: 1, number: '0812-5550-0201', pin: '123456' },
+    { line: 2, number: '081255500202', pin: '' },
+    { line: 3, number: '081255500201', pin: null },
+    { line: 4, number: '081255500001', pin: null },
+    { line: 5, number: '12345', pin: null },
+    { line: 6, number: '081255500206', pin: '12' },
+  ])]))
+  const st = val[0].v.map((r) => (r.ok ? 'ok' : r.error.slice(0, 22)))
+  const v = val[0].v
+  v[0].ok && v[1].ok && !v[2].ok && !v[3].ok && !v[4].ok && !v[5].ok && v[0].pin_set === true && v[1].pin_set === false && !JSON.stringify(v).includes('123456')
+    ? ok('preview: valid, PIN kosong boleh, duplikat batch, sudah terdaftar, nomor & PIN salah ditolak; nilai PIN tidak dikembalikan — ' + st.join(' | '))
+    : bad('validasi bulk Baperan', JSON.stringify(st))
+  await expectFail('batch dengan baris tidak valid ditolak seluruhnya', () => as('rani', () =>
+    q(`select public.bulk_restock_baperan($1::jsonb, '2026-12-31', $2::date, 3000, null, gen_random_uuid())`, [rows([{ line: 1, number: '081255500211', pin: null }, { line: 2, number: '081255500001', pin: null }]), today])), 'Baris 2')
+  ;(await q(`select count(*)::int n from public.accounts where account_number = '081255500211'`))[0].n === 0 ? ok('atomik: tidak ada akun tersisa dari batch gagal') : bad('batch gagal meninggalkan data')
+  await expectFail('masa aktif wajib untuk batch', () => as('rani', () =>
+    q(`select public.bulk_restock_baperan($1::jsonb, null, $2::date, null, null, gen_random_uuid())`, [rows([{ line: 1, number: '081255500212', pin: null }]), today])), 'wajib')
+  await expectFail('staf tanpa izin tidak bisa bulk Baperan', () => as('dimas', () =>
+    q(`select public.bulk_restock_baperan_validate($1::jsonb)`, [rows([{ line: 1, number: '081255500213', pin: null }])])), 'izin')
+  const key = (await q('select gen_random_uuid() k'))[0].k
+  const body = rows([{ line: 1, number: '0812-5550-0221', pin: '1111' }, { line: 2, number: '081255500222', pin: '' }, { line: 3, number: '081255500223', pin: null }])
+  const r = await expectOk('bulk Baperan: 3 akun, masa aktif & modal sekali untuk batch', () => as('rani', () =>
+    q(`select public.bulk_restock_baperan($1::jsonb, '2026-12-31', $2::date, 3000, 'Reseller D', $3) r`, [body, today, key])))
+  const res = r?.[0].r
+  res?.new_accounts === 3 && res?.vouchers === 3 && Number(res?.total_cost) === 9000 && res?.rows.length === 3
+    ? ok(`batch ${res.batch}: 3 akun, 3 voucher, modal Rp9.000, hasil per baris tersedia`) : bad('ringkasan bulk Baperan', JSON.stringify(res))
+  const again = await as('rani', () => q(`select public.bulk_restock_baperan($1::jsonb, '2026-12-31', $2::date, 3000, 'Reseller D', $3) r`, [body, today, key]))
+  const n = (await q(`select count(*)::int n from public.accounts where account_number in ('081255500221','081255500222','081255500223')`))[0].n
+  again[0].r.repeated && again[0].r.batch === res?.batch && n === 3 ? ok('kiriman ganda mengembalikan batch yang sama, tanpa akun ganda') : bad('idempotensi bulk Baperan', JSON.stringify(again[0].r))
+  const acc = await q(`select a.inventory, a.pin, a.active_until::text u, (select count(*)::int from public.vouchers v where v.account_id = a.id) nv,
+                        (select batch_id is not null from public.restocks rs where rs.account_id = a.id) in_batch
+                       from public.accounts a where account_number in ('081255500221','081255500222') order by account_number`)
+  acc[0].inventory === 'baperan' && acc[0].pin === '1111' && acc[1].pin === null && acc.every((x) => x.nv === 1 && x.u === '2026-12-31' && x.in_batch)
+    ? ok('setiap nomor = 1 akun Baperan, 1 voucher, masa aktif batch, tercatat di riwayat batch') : bad('akun bulk Baperan', JSON.stringify(acc))
+  const b = await as('rani', () => q(`select mode, source from public.restock_batches where code = $1`, [res?.batch]))
+  b[0]?.mode === 'baperan' && b[0]?.source === 'panel' ? ok('riwayat batch terlihat staf (mode baperan)') : bad('batch Baperan', JSON.stringify(b))
+  // Ketentuan: potongan Rp8.000, minimum pembelian Rp17.000.
+  const bv = (await q(`select v.id from public.vouchers v join public.accounts a on a.id = v.account_id where a.account_number = '081255500222'`))[0].id
+  await expectFail('order Baperan di bawah Rp17.000 ditolak', () => as('rani', () =>
+    q(`select public.record_order($1,'Uji','081234567890',null,16000,12000,0,null,null,true,gen_random_uuid())`, [bv])), 'minimum')
+  const o = await expectOk('order Baperan Rp17.000 diterima', () => as('rani', () =>
+    q(`select public.record_order($1,'Uji','081234567890',null,17000,12000,0,null,null,true,gen_random_uuid()) c`, [bv])))
+  const d = o && (await q(`select discount, rule_snapshot->>'min_purchase' m from public.orders where code = $1`, [o[0].c]))[0]
+  d?.discount === 8000 && d?.m === '17000' ? ok('potongan Rp8.000, snapshot minimum Rp17.000 tersimpan di order') : bad('ketentuan Baperan', JSON.stringify(d))
+}
+
 console.log('\nProfil sesi & jumlah otomatis per akun')
 await as('rani', async () => {
   const p = await q(`select * from public.current_profile()`)

@@ -67,7 +67,7 @@ from (values
   ('KK', 'A', 50.0, null::integer, 0, 35000),
   ('KK', 'B', 50.0, null, 50000, 30000),
   ('KK', 'C', 50.0, null, 70000, 30000),
-  ('KK', 'BP', null, 8000, null, null),
+  ('KK', 'BP', null, 8000, 17000, null),
   ('TM', 'D50', 50.0, null, null, null),
   ('TM', 'B1G1', null, null, null, null),
   ('FR', 'D25', 25.0, null, null, 50000)
