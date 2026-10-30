@@ -214,3 +214,19 @@ export async function verifyBenefit(_: ActionResult | null, fd: FormData): Promi
   return callRpc('verify_benefit_claim', { p_claim: id.data, p_approve: approve, p_note: note || null },
     approve ? 'Klaim terverifikasi: benefit ditandai sudah diambil.' : 'Klaim ditolak. Admin dapat melihat alasan dan mengajukan ulang.', P)
 }
+
+const WORK = { masuk: 'Masuk / Aktif', istirahat: 'Istirahat', off: 'Off / Izin', selesai: 'Selesai' } as const
+
+/** Owner mengubah status kerja admin. Urutan, batas waktu, kunci rekap, dan audit ditegakkan owner_set_work_status. */
+export async function ownerSetStatus(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const shift = uuid.safeParse(str(fd, 'shift'))
+  const status = z.enum(['masuk', 'istirahat', 'off', 'selesai']).safeParse(str(fd, 'status'))
+  const atRaw = str(fd, 'at')
+  const at = atRaw ? jktLocalToIso(atRaw) : null
+  const reason = str(fd, 'reason')
+  if (!shift.success || !status.success) return { ok: false, message: 'Pilih status.' }
+  if (atRaw && !at) return { ok: false, message: 'Waktu tidak valid.' }
+  if (reason.length < 3) return { ok: false, message: 'Tulis alasan perubahan status.' }
+  return callRpc('owner_set_work_status', { p_shift: shift.data, p_status: status.data, p_at: at, p_reason: reason },
+    `Status diubah menjadi ${WORK[status.data]}. Jam kerja dihitung ulang dari riwayat absensi.`, [...P, '/'])
+}

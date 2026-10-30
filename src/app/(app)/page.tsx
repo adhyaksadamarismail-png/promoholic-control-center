@@ -245,7 +245,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       supabase.from('benefit_claims').select('claimed_at, status, cup_size, shifts(code)').eq('admin_id', me).order('claimed_at', { ascending: false }).limit(3),
       supabase.from('restocks').select('code, kind, items, created_at').eq('created_by', me).order('created_at', { ascending: false }).limit(3),
     ])
-    const KIND: Record<string, string> = { clock_in: 'Absensi masuk', clock_out: 'Absensi pulang', break_start: 'Mulai istirahat', break_end: 'Selesai istirahat' }
+    const KIND: Record<string, string> = { clock_in: 'Absensi masuk', clock_out: 'Absensi pulang', break_start: 'Mulai istirahat', break_end: 'Selesai istirahat', off_start: 'Mulai Off/Izin', off_end: 'Selesai Off/Izin' }
     const STATUS: Record<string, string> = { pending: 'Menunggu verifikasi', verified: 'Terverifikasi', rejected: 'Ditolak', confirmed: 'Dikonfirmasi', draft: 'Draft', cancelled: 'Dibatalkan' }
     const events = shifts
       .filter((s) => s.admin_id === me)

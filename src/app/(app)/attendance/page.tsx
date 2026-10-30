@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { AutoRefresh } from '@/components/auto-refresh'
 import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, inputCls, labelCls } from '@/components/ui'
@@ -17,6 +18,9 @@ import {
   missingRegularShifts,
   netMinutes,
   nextActions,
+  offMinutes,
+  workStatus,
+  WORK_STATUS,
   type AttendanceEvent,
   type AttendanceKind,
 } from '@/lib/attendance'
@@ -74,7 +78,7 @@ export default async function AttendancePage() {
     supabase
       .from('shifts')
       .select(
-        'id, code, kind, shift_date, planned_start, planned_end, status, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason), benefit_entitlements(id, benefit_claims(id, claimed_at, voided_at, status, cup_size, receipt_path, review_note, verified_at)), shift_earnings(net_minutes, base_allowance, bonus, status)',
+        'id, code, kind, shift_date, planned_start, planned_end, status, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason, actor_id), benefit_entitlements(id, benefit_claims(id, claimed_at, voided_at, status, cup_size, receipt_path, review_note, verified_at)), shift_earnings(net_minutes, base_allowance, bonus, status)',
       )
       .eq('admin_id', me)
       .gte('shift_date', addDays(week, -14))
@@ -123,6 +127,7 @@ export default async function AttendancePage() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
+      <AutoRefresh />
       <PageHeader eyebrow={`${profile.full_name} · ${dateLabel(today, 'long')}`} title="Absensi & Benefit" />
 
       {unscheduled.length > 0 && (
@@ -142,6 +147,10 @@ export default async function AttendancePage() {
         const next = s.status === 'scheduled' || s.status === 'in_progress' ? nextActions(eff) : []
         const net = netMinutes(eff, now)
         const brk = breakMinutes(eff, now)
+        const off = offMinutes(eff, now)
+        const ws = workStatus(eff)
+        // Perubahan status oleh owner (pelaku bukan admin ini), ditampilkan apa adanya beserta alasannya.
+        const byOwner = eff.filter((e) => e.actor_id && e.actor_id !== me)
         const est = s.kind === 'regular' ? estimateAllowance(net, allowance) : estimateBonus(net, bonus)
         // Klaim terbaru yang belum dibatalkan; "aktif" = menunggu verifikasi atau terverifikasi.
         const claims = (s.benefit_entitlements?.benefit_claims ?? []).filter((c) => !c.voided_at).sort((a, b) => b.claimed_at.localeCompare(a.claimed_at))
@@ -163,8 +172,16 @@ export default async function AttendancePage() {
                   </span>
                   <span className="text-sm text-[#c5cbd9]">{dateLabel(s.shift_date, 'long')}</span>
                 </div>
-                <Pill tone={s.kind === 'regular' ? 'info' : 'orange'}>{s.kind === 'regular' ? 'Reguler' : 'Tambahan'}</Pill>
+                <div className="flex flex-col items-end gap-1">
+                  <Pill tone={s.kind === 'regular' ? 'info' : 'orange'}>{s.kind === 'regular' ? 'Reguler' : 'Tambahan'}</Pill>
+                  {ws.status !== 'belum' && <Pill tone={WORK_STATUS[ws.status].tone}>{WORK_STATUS[ws.status].label}{ws.since ? ` · ${jktTime(ws.since)}` : ''}</Pill>}
+                </div>
               </div>
+              {ws.status === 'off' && (
+                <p className="rounded-lg bg-navy-800 px-3 py-2 text-sm">
+                  Status Off/Izin diatur owner sejak {jktTime(ws.since)}. Waktu ini tidak dihitung sebagai jam kerja; minta owner bila sudah kembali bekerja.
+                </p>
+              )}
 
               <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {steps.map((k) => {
@@ -181,7 +198,7 @@ export default async function AttendancePage() {
               <div className="flex flex-col gap-1">
                 <span className="font-display text-3xl font-bold">{minutesLabel(net)}</span>
                 <span className="text-sm text-[#c5cbd9]">
-                  kerja bersih{brk ? ` (istirahat ${minutesLabel(brk)})` : ''}
+                  kerja bersih{brk ? ` (istirahat ${minutesLabel(brk)})` : ''}{off ? ` · Off/Izin ${minutesLabel(off)}` : ''}
                   {s.kind === 'regular' && ` · target ${minutesLabel(target)} · tercapai ${Math.min(100, Math.round((net / target) * 100))}%`}
                 </span>
               </div>
@@ -209,6 +226,13 @@ export default async function AttendancePage() {
                     <span className="text-xs text-[#c5cbd9]">Absen masuk dibuka mulai {jktTime(new Date(opensAt).toISOString())}.</span>
                   )}
                 </ActionForm>
+              )}
+              {byOwner.length > 0 && (
+                <ul className="flex flex-col gap-0.5 text-xs text-[#c5cbd9]">
+                  {byOwner.map((e) => (
+                    <li key={e.id}>Diubah owner: {KIND_LABEL[e.kind]} {jktTime(e.at)}{e.correction_reason ? ` — ${e.correction_reason}` : ''}</li>
+                  ))}
+                </ul>
               )}
               <span className="text-xs text-[#c5cbd9]">
                 Waktu diambil dari server. Tombol muncul sesuai urutan; absen masuk/pulang tidak bisa dua kali.

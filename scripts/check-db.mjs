@@ -499,5 +499,49 @@ await expectFail('tandai sudah ganti password tanpa benar-benar mengganti ditola
 await q(`update auth.users set encrypted_password = extensions.crypt('Password-Baru-2026', extensions.gen_salt('bf')) where id = $1`, [ids.dimas])
 await expectOk('setelah password diganti, penanda bisa dihapus', () => as('dimas', () => q(`select public.mark_password_changed()`)))
 
+console.log('\nStatus kerja diatur owner')
+{
+  const sh = await as('owner', async () => {
+    const code = (await q(`select public.add_extra_shift($1, now() - interval '5 hours', now() + interval '1 hour') c`, [ids.dimas]))[0].c
+    return (await q(`select id from public.shifts where code = $1`, [code]))[0].id
+  })
+  const set = (status, minsAgo, reason = 'uji owner') =>
+    q(`select public.owner_set_work_status($1, $2, now() - make_interval(mins => $3), $4)`, [sh, status, minsAgo, reason])
+  await expectFail('staf tidak bisa mengubah status admin', () => as('dimas', () =>
+    q(`select public.owner_set_work_status($1, 'masuk', null, 'uji')`, [sh])), 'khusus owner')
+  await expectFail('alasan wajib diisi', () => as('owner', () => set('masuk', 240, '')), 'Alasan')
+  await expectFail('belum masuk tidak bisa langsung Istirahat', () => as('owner', () => set('istirahat', 240)), 'belum masuk')
+  await as('owner', async () => {
+    await expectOk('owner: Masuk (waktu mundur 4 jam, admin lupa absen)', () => set('masuk', 240))
+    await expectOk('owner: Istirahat 1 jam kemudian', () => set('istirahat', 180))
+    await expectOk('owner: Istirahat → Off/Izin langsung', () => set('off', 120))
+  })
+  await expectFail('admin tidak bisa mengakhiri Off sendiri', () => as('dimas', () =>
+    q(`select public.attendance_action($1, 'clock_out')`, [sh])), 'diatur owner')
+  await as('owner', async () => {
+    await expectFail('waktu sebelum peristiwa terakhir ditolak', () => set('masuk', 150), 'setelah peristiwa terakhir')
+    await expectFail('waktu di masa depan ditolak', () => set('masuk', -30), 'masa depan')
+    await expectOk('owner: kembali Masuk', () => set('masuk', 60))
+    const m = (await q(`select * from public.shift_minutes($1)`, [sh]))[0]
+    m.net_minutes === 120 && m.break_minutes === 60 ? ok('berjalan: 4 jam kotor − 1 jam istirahat − 1 jam Off = 2 jam kerja') : bad('menit kerja', JSON.stringify(m))
+  })
+  await as('dimas', async () => {
+    await expectOk('admin tetap bisa Istirahat sendiri setelah owner mengubah status', () => q(`select public.attendance_action($1, 'break_start')`, [sh]))
+    await expectOk('admin selesai istirahat sendiri', () => q(`select public.attendance_action($1, 'break_end')`, [sh]))
+  })
+  await as('owner', async () => {
+    await expectOk('owner: Selesai', () => set('selesai', 0))
+    const e = (await q(`select s.status, e.net_minutes, e.status es from public.shifts s join public.shift_earnings e on e.shift_id = s.id where s.id = $1`, [sh]))[0]
+    e?.status === 'completed' && e.net_minutes >= 119 && e.net_minutes <= 120 && e.es === 'pending'
+      ? ok('shift selesai; uang saku dihitung dari menit kerja bersih (' + e.net_minutes + ' menit), menunggu persetujuan') : bad('earning', JSON.stringify(e))
+    const a = await q(`select before->>'status' b, after->>'status' s from public.audit_log where action = 'attendance.owner_status' and entity_id = $1 order by id`, [sh])
+    a.map((x) => `${x.b}→${x.s}`).join(',') === 'belum→masuk,masuk→istirahat,istirahat→off,off→masuk,masuk→selesai'
+      ? ok('audit mencatat status sebelum & sesudah tiap perubahan') : bad('audit status', JSON.stringify(a))
+    const ev = await q(`select count(*)::int n, count(*) filter (where actor_id = $2)::int by_owner from public.attendance_events where shift_id = $1`, [sh, ids.owner])
+    ev[0].n === 8 && ev[0].by_owner === 6 ? ok('riwayat event lengkap; pelaku owner tercatat (6 dari 8 event, 2 oleh admin)') : bad('event', JSON.stringify(ev[0]))
+    await expectFail('shift yang sudah selesai tidak diubah lewat status', () => set('masuk', 0), 'sudah ditutup')
+  })
+}
+
 console.log(failed ? `\n${failed} pemeriksaan gagal` : '\nSemua pemeriksaan lulus')
 process.exit(failed ? 1 : 0)

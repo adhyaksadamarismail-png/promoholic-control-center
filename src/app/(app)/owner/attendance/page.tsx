@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { requireOwnerPage } from '@/lib/auth'
 import { PageHeader, Stat, Tabs } from '@/components/ui'
 import { addDays, dateLabel, isYmd, jktDate, weekStart } from '@/lib/format'
+import { AutoRefresh } from '@/components/auto-refresh'
+import { StatusCard } from './status-card'
 import { AttendanceTab, BenefitTab, EarningsTab, PayrollTab, RulesTab, ScheduleTab, StaffTab, type Profile } from './sections'
 
 export const dynamic = 'force-dynamic'
@@ -60,6 +62,9 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
         <Stat label="Benefit terverifikasi" value={`${claimed} / ${list.length}`} sub="1 cup per shift" />
         <Stat label="Pengajuan koreksi" value={pendingApprovals ?? 0} sub={<Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link>} />
       </div>
+
+      <AutoRefresh />
+      <StatusCard supabase={supabase} profiles={(profiles ?? []) as Profile[]} />
 
       <Tabs items={TABS.map((t) => ({ ...t, href: href(t.key) }))} active={tab} />
 

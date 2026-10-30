@@ -1,11 +1,13 @@
-export type AttendanceKind = 'clock_in' | 'break_start' | 'break_end' | 'clock_out'
-export type AttendanceEvent = { id: number; kind: AttendanceKind; at: string; corrects_id: number | null; correction_reason: string | null }
+export type AttendanceKind = 'clock_in' | 'break_start' | 'break_end' | 'clock_out' | 'off_start' | 'off_end'
+export type AttendanceEvent = { id: number; kind: AttendanceKind; at: string; corrects_id: number | null; correction_reason: string | null; actor_id?: string }
 
 export const KIND_LABEL: Record<AttendanceKind, string> = {
   clock_in: 'Masuk',
   break_start: 'Mulai istirahat',
   break_end: 'Selesai istirahat',
   clock_out: 'Pulang',
+  off_start: 'Mulai Off/Izin',
+  off_end: 'Selesai Off/Izin',
 }
 
 export const ACTION_LABEL: Record<AttendanceKind, string> = {
@@ -13,6 +15,25 @@ export const ACTION_LABEL: Record<AttendanceKind, string> = {
   break_start: 'Mulai istirahat',
   break_end: 'Selesai istirahat',
   clock_out: 'Absen pulang',
+  off_start: 'Mulai Off/Izin',
+  off_end: 'Selesai Off/Izin',
+}
+
+/** Status kerja dari event terakhir (sama dengan owner_set_work_status di database). */
+export type WorkStatus = 'belum' | 'masuk' | 'istirahat' | 'off' | 'selesai'
+export const WORK_STATUS: Record<WorkStatus, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }> = {
+  belum: { label: 'Belum masuk', tone: 'neutral' },
+  masuk: { label: 'Masuk / Aktif', tone: 'success' },
+  istirahat: { label: 'Istirahat', tone: 'warning' },
+  off: { label: 'Off / Izin', tone: 'danger' },
+  selesai: { label: 'Selesai', tone: 'info' },
+}
+export function workStatus(effective: AttendanceEvent[]): { status: WorkStatus; since: string | null } {
+  const last = effective.at(-1)
+  if (!last) return { status: 'belum', since: null }
+  const status: WorkStatus =
+    last.kind === 'break_start' ? 'istirahat' : last.kind === 'off_start' ? 'off' : last.kind === 'clock_out' ? 'selesai' : 'masuk'
+  return { status, since: last.at }
 }
 
 export const SHIFT_STATUS: Record<string, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }> = {
@@ -39,7 +60,7 @@ export function effectiveEvents(events: AttendanceEvent[]) {
 export function nextActions(effective: AttendanceEvent[]): AttendanceKind[] {
   const last = effective.at(-1)?.kind
   if (!last) return ['clock_in']
-  if (last === 'clock_in' || last === 'break_end') return ['break_start', 'clock_out']
+  if (last === 'clock_in' || last === 'break_end' || last === 'off_end') return ['break_start', 'clock_out']
   if (last === 'break_start') return ['break_end']
   return []
 }
@@ -65,12 +86,30 @@ export function breakMinutes(effective: AttendanceEvent[], now = Date.now()) {
   return Math.floor(total / 60000)
 }
 
+/** Menit Off/Izin (diatur owner); tidak dihitung kerja dan terpisah dari istirahat. */
+export function offMinutes(effective: AttendanceEvent[], now = Date.now()) {
+  let total = 0
+  let start: number | null = null
+  for (const e of effective) {
+    if (e.kind === 'off_start') start = Date.parse(e.at)
+    if (e.kind === 'off_end' && start !== null) {
+      total += Date.parse(e.at) - start
+      start = null
+    }
+  }
+  if (start !== null) {
+    const out = firstOf(effective, 'clock_out')
+    total += (out ? Date.parse(out) : now) - start
+  }
+  return Math.floor(total / 60000)
+}
+
 export function netMinutes(effective: AttendanceEvent[], now = Date.now()) {
   const inAt = firstOf(effective, 'clock_in')
   if (!inAt) return 0
   const out = firstOf(effective, 'clock_out')
   const gross = Math.floor(((out ? Date.parse(out) : now) - Date.parse(inAt)) / 60000)
-  return Math.max(0, gross - breakMinutes(effective, now))
+  return Math.max(0, gross - breakMinutes(effective, now) - offMinutes(effective, now))
 }
 
 type AllowanceRule = { target_hours: number | string; amount_rp: number; cap_at_target: boolean }
