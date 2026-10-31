@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useMemo, useState } from 'react'
-import { currentVersion, previewDiscount, ruleLabel, type Rule } from '@/lib/inventory'
+import { currentVersion, previewDiscount, ruleLabel, stockLevel, type Rule } from '@/lib/inventory'
 import { createOrder } from './actions'
 import { baperanIdentity, baperanStatus } from '@/lib/baperan'
 
@@ -20,6 +20,16 @@ const num = (v: string) => {
 }
 const input = 'min-h-11 w-full rounded-lg border border-[#dcd2bf] bg-white px-3 text-base outline-orange-500'
 const label = 'flex flex-col gap-1.5 text-sm font-semibold'
+
+// Akun Baperan selalu berisi satu voucher, jadi indikator stok hanya untuk akun reguler.
+const STOCK = {
+  cukup: { label: 'Stok cukup', dot: 'bg-[#4fb286]' },
+  menipis: { label: 'Stok menipis', dot: 'bg-[#f5b544]' },
+}
+
+function StockDot({ level }: { level: keyof typeof STOCK }) {
+  return <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${STOCK[level].dot}`} />
+}
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -164,8 +174,16 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
 
         <Step n={2} title="ID akun">
           {!brandAccounts.length && <p className="text-sm text-ink-500">Tidak ada akun dengan voucher tersedia untuk brand ini.</p>}
+          {brandAccounts.some((a) => a.inventory !== 'baperan') && (
+            <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">
+              <span className="flex items-center gap-1.5"><StockDot level="cukup" />Stok cukup</span>
+              <span className="flex items-center gap-1.5"><StockDot level="menipis" />Sisa ≤2 voucher</span>
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {brandAccounts.map((a) => (
+            {brandAccounts.map((a) => {
+              const level = a.inventory === 'baperan' ? null : stockLevel(availByAccount.get(a.id)?.length ?? 0)
+              return (
               <button
                 type="button"
                 key={a.id}
@@ -173,7 +191,11 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
                 onClick={() => { setAccountId(a.id); setVoucherId(null) }}
                 className={`flex flex-col items-start rounded-xl border px-3 py-2 text-left ${accountId === a.id ? 'border-orange-500 bg-orange-100' : 'border-[#dcd2bf] bg-white'}`}
               >
-                <span className="font-mono text-sm font-semibold">{a.inventory === 'baperan' ? baperanIdentity(a).label : a.account_code}</span>
+                <span className="flex w-full items-center justify-between gap-2">
+                  <span className="min-w-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]">{a.inventory === 'baperan' ? baperanIdentity(a).label : a.account_code}</span>
+                  {level && <StockDot level={level} />}
+                </span>
+                {level && <span className="sr-only">{STOCK[level].label}.</span>}
                 <span className="text-xs text-ink-500">
                   {a.inventory === 'baperan' ? (a.account_number ? `Baperan · ${a.account_code}` : 'Baperan · ID Akun') : `${availByAccount.get(a.id)?.length} voucher · ${a.source === 'vm' ? 'VM' : 'Panel'}`}
                   {a.active_until && ` · s/d ${a.active_until.slice(8, 10)}/${a.active_until.slice(5, 7)}`}
@@ -181,8 +203,12 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
                 {a.inventory === 'baperan' && baperanStatus(a.active_until) === 'segera' && (
                   <span className="mt-1 rounded-full bg-warning-100 px-2 py-0.5 text-[11px] font-bold text-warning-700">Segera kedaluwarsa</span>
                 )}
+                {level === 'menipis' && (
+                  <span aria-hidden className="mt-1 self-end rounded-full bg-warning-100 px-2 py-0.5 text-[11px] font-bold text-warning-700 ring-1 ring-inset ring-warning-700/15">MENIPIS</span>
+                )}
               </button>
-            ))}
+              )
+            })}
           </div>
         </Step>
 

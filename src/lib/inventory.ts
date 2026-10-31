@@ -1,5 +1,8 @@
 export type VoucherStatus = 'available' | 'reserved' | 'used' | 'expired' | 'broken'
 
+/** Kondisi stok akun dari jumlah voucher yang masih tersedia: 3 atau lebih cukup, 1-2 menipis. */
+export const stockLevel = (available: number): 'cukup' | 'menipis' => (available >= 3 ? 'cukup' : 'menipis')
+
 export const VOUCHER_STATUS: Record<VoucherStatus, { label: string; tone: 'success' | 'neutral' | 'warning' | 'danger' | 'info' }> = {
   available: { label: 'Tersedia', tone: 'success' },
   reserved: { label: 'Dipesan (draft)', tone: 'warning' },
