@@ -36,12 +36,21 @@ export function workStatus(effective: AttendanceEvent[]): { status: WorkStatus; 
   return { status, since: last.at }
 }
 
+/** Ketidakhadiran pada shift yang belum dimulai; berbeda dari Off / Izin yang dipakai saat shift berjalan. */
+export type AbsenceKind = 'tidak_masuk' | 'izin' | 'sakit'
+export const ABSENCE: Record<AbsenceKind, { label: string; tone: 'danger' | 'info' | 'orange' }> = {
+  tidak_masuk: { label: 'Tidak Masuk', tone: 'danger' },
+  izin: { label: 'Izin', tone: 'info' },
+  sakit: { label: 'Sakit', tone: 'orange' },
+}
+
 export const SHIFT_STATUS: Record<string, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }> = {
   scheduled: { label: 'Belum absen', tone: 'neutral' },
   in_progress: { label: 'Sedang bekerja', tone: 'info' },
   completed: { label: 'Selesai', tone: 'success' },
   incomplete: { label: 'Tidak lengkap', tone: 'danger' },
   cancelled: { label: 'Dibatalkan', tone: 'neutral' },
+  absent: { label: 'Tidak hadir', tone: 'danger' },
 }
 
 /**

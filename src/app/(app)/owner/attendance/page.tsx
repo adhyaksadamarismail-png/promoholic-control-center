@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { requireOwnerPage } from '@/lib/auth'
-import { PageHeader, Stat, Tabs } from '@/components/ui'
+import { PageHeader, Pill, Stat, Tabs } from '@/components/ui'
+import { ABSENCE, type AbsenceKind } from '@/lib/attendance'
 import { addDays, dateLabel, isYmd, jktDate, weekStart } from '@/lib/format'
 import { AutoRefresh } from '@/components/auto-refresh'
 import { StatusCard } from './status-card'
@@ -27,7 +28,7 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
 
   const [{ data: profiles }, { data: shifts }, { count: pendingEarnings }, { count: pendingApprovals }] = await Promise.all([
     supabase.from('profiles').select('id, username, full_name, role, is_active, can_restock_panel, must_change_password').order('role').order('username'),
-    supabase.from('shifts').select('status, needs_review, benefit_entitlements(benefit_claims(voided_at, status))').gte('shift_date', week).lte('shift_date', end),
+    supabase.from('shifts').select('status, absence_kind, needs_review, benefit_entitlements(benefit_claims(voided_at, status))').gte('shift_date', week).lte('shift_date', end),
     supabase.from('shift_earnings').select('id, shifts!inner(shift_date)', { count: 'exact', head: true }).eq('status', 'pending').gte('shifts.shift_date', week).lte('shifts.shift_date', end),
     supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
   ])
@@ -37,6 +38,9 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
     const e = s.benefit_entitlements as unknown as Ent | Ent[] | null
     return (Array.isArray(e) ? e : e ? [e] : []).some((x) => x.benefit_claims?.some((c) => !c.voided_at && c.status === 'verified'))
   }).length
+
+  const present = list.filter((s) => s.status !== 'absent')
+  const absentCount = (k: AbsenceKind) => list.filter((s) => s.absence_kind === k).length
 
   const href = (t: string, w = week) => `/owner/attendance?tab=${t}&week=${w}`
   const props = { supabase, week, profiles: (profiles ?? []) as Profile[], sp }
@@ -57,10 +61,15 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
 
       <div className="flex flex-wrap gap-3">
         <Stat label="Shift minggu ini" value={list.length} sub={`${list.filter((s) => s.status === 'completed').length} selesai`} />
-        <Stat label="Perlu diperiksa" value={list.filter((s) => s.needs_review || s.status === 'incomplete').length} sub="ditandai sistem" />
+        <Stat label="Perlu diperiksa" value={present.filter((s) => s.needs_review || s.status === 'incomplete').length} sub="ditandai sistem" />
         <Stat label="Menunggu persetujuan" value={pendingEarnings ?? 0} sub="uang saku / bonus" />
-        <Stat label="Benefit terverifikasi" value={`${claimed} / ${list.length}`} sub="1 cup per shift" />
+        <Stat label="Benefit terverifikasi" value={`${claimed} / ${present.length}`} sub="1 cup per shift" />
         <Stat label="Pengajuan koreksi" value={pendingApprovals ?? 0} sub={<Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link>} />
+        <Stat
+          label="Ketidakhadiran"
+          value={list.length - present.length}
+          sub={<span className="flex flex-wrap gap-1">{(Object.keys(ABSENCE) as AbsenceKind[]).map((k) => <Pill key={k} tone={ABSENCE[k].tone}>{ABSENCE[k].label} {absentCount(k)}</Pill>)}</span>}
+        />
       </div>
 
       <AutoRefresh />

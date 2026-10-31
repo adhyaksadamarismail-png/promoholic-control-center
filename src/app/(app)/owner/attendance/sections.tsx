@@ -3,6 +3,7 @@ import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, Pill, Table, inputCls, labelCls } from '@/components/ui'
 import { WEEKDAYS, addDays, dateLabel, isYmd, isoToJktLocal, jktDate, jktDateTime, jktTime, minutesLabel, rupiah } from '@/lib/format'
 import {
+  ABSENCE,
   EARNING_STATUS,
   KIND_LABEL,
   shiftLabel,
@@ -12,6 +13,7 @@ import {
   firstOf,
   missingRegularShifts,
   netMinutes,
+  type AbsenceKind,
   type AttendanceEvent,
   type AttendanceKind,
   type ScheduleRow,
@@ -28,12 +30,14 @@ import {
   generateWeek,
   markPaid,
   resetPassword,
+  setAbsence,
   setSchedule,
   setStaffActive,
   setStaffPermission,
   verifyBenefit,
 } from './actions'
 import { ReceiptViewer } from './receipt-viewer'
+import { AbsenceForm } from './absence-form'
 
 export type Profile = {
   id: string
@@ -57,7 +61,7 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
   const [{ data }, { data: templates }] = await Promise.all([
     supabase
     .from('shifts')
-    .select('id, code, admin_id, kind, shift_date, planned_start, planned_end, status, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason)')
+    .select('id, code, admin_id, kind, shift_date, planned_start, planned_end, status, absence_kind, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason)')
     .gte('shift_date', week)
     .lte('shift_date', addDays(week, 6))
     .order('planned_start'),
@@ -66,8 +70,18 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
   ])
   const shifts = (data ?? []) as {
     id: string; code: string; admin_id: string; kind: string; shift_date: string; planned_start: string; planned_end: string
-    status: string; needs_review: boolean; review_reasons: string[]; attendance_events: AttendanceEvent[]
+    status: string; absence_kind: AbsenceKind | null; needs_review: boolean; review_reasons: string[]; attendance_events: AttendanceEvent[]
   }[]
+  type AbsenceLog = { id: number; shift_id: string; kind: AbsenceKind | null; previous_kind: AbsenceKind | null; note: string | null; reason: string | null; attachment_path: string | null; actor_id: string; at: string }
+  const { data: logData } = shifts.some((s) => s.absence_kind)
+    ? await supabase.from('shift_absence_log').select('id, shift_id, kind, previous_kind, note, reason, attachment_path, actor_id, at').in('shift_id', shifts.map((s) => s.id)).order('id')
+    : { data: [] }
+  const logs = (logData ?? []) as AbsenceLog[]
+  const staffList = staffOf(profiles).filter((p) => p.is_active).map((p) => ({ id: p.id, name: p.full_name }))
+  // Bisa ditandai: belum ada absensi dan shift belum ditutup. Aturan sebenarnya di set_shift_absence.
+  const absenceShifts = shifts
+    .filter((s) => (s.status === 'scheduled' || s.status === 'incomplete') && !effectiveEvents(s.attendance_events ?? []).length)
+    .map((s) => ({ id: s.id, admin_id: s.admin_id, label: `${dateLabel(s.shift_date)} · ${jktTime(s.planned_start)}–${jktTime(s.planned_end)}${s.kind === 'extra' ? ' · tambahan' : ''}` }))
   const kinds: AttendanceKind[] = ['clock_in', 'break_start', 'break_end', 'clock_out']
   // Jadwal reguler staf aktif yang belum menjadi shift di minggu ini (shift hanya dibuat lewat tombol / simpan jadwal).
   const activeStaff = new Set(staffOf(profiles).filter((p) => p.is_active).map((p) => p.id))
@@ -90,6 +104,7 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
         <ActionForm action={flagIncomplete} className="flex flex-col gap-2">
           <SubmitButton variant="ghost">Tandai shift tanpa absen pulang</SubmitButton>
         </ActionForm>
+        <AbsenceForm staff={staffList} shifts={absenceShifts} />
         <details className="rounded-xl border border-cream-300 bg-white px-4 py-2.5 text-sm">
           <summary className="cursor-pointer font-semibold">+ Shift tambahan</summary>
           <ActionForm action={addExtraShift} className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -121,7 +136,10 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
           {shifts.map((s) => {
             const eff = effectiveEvents(s.attendance_events ?? [])
             const corrected = (s.attendance_events ?? []).filter((e) => e.corrects_id)
-            const st = shiftLabel(s.status, eff)
+            const absent = s.absence_kind ? ABSENCE[s.absence_kind] : null
+            const st = absent ?? shiftLabel(s.status, eff)
+            const history = logs.filter((l) => l.shift_id === s.id)
+            const current = history.at(-1)
             return (
               <tr key={s.id}>
                 <td className="whitespace-nowrap">{dateLabel(s.shift_date)}</td>
@@ -135,7 +153,11 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
                 <td>
                   <div className="flex flex-col items-start gap-1">
                     {st && <Pill tone={st.tone}>{st.label}</Pill>}
-                    {s.review_reasons.map((r) => <Pill key={r} tone="warning">{r}</Pill>)}
+                    {!absent && s.review_reasons.map((r) => <Pill key={r} tone="warning">{r}</Pill>)}
+                    {absent && current?.note && <span className="text-xs text-ink-500">{current.note}</span>}
+                    {absent && current?.attachment_path && (
+                      <a href={`/api/absence-proof/${current.id}`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-orange-700">Lihat bukti</a>
+                    )}
                     {corrected.map((c) => (
                       <span key={c.id} className="text-xs text-ink-500">
                         Dikoreksi: {KIND_LABEL[c.kind]} {jktTime(c.at)} — {c.correction_reason}
@@ -144,6 +166,30 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
                   </div>
                 </td>
                 <td>
+                  {absent ? (
+                  <details className="text-sm">
+                    <summary className="cursor-pointer font-semibold text-orange-700">Ubah status</summary>
+                    <ActionForm action={setAbsence} className="mt-2 flex w-64 flex-col gap-2" confirm="Simpan perubahan status ketidakhadiran?">
+                      <input type="hidden" name="shift" value={s.id} />
+                      <select name="kind" className={inputCls} defaultValue={s.absence_kind ?? undefined}>
+                        {(Object.keys(ABSENCE) as AbsenceKind[]).map((k) => <option key={k} value={k}>{ABSENCE[k].label}</option>)}
+                        <option value="hapus">Hapus status (salah catat)</option>
+                      </select>
+                      <input name="note" maxLength={500} defaultValue={current?.note ?? ''} placeholder="Catatan (opsional)" className={inputCls} autoComplete="off" />
+                      <input type="file" name="proof" accept="image/jpeg,image/png,image/webp,application/pdf" className="text-xs" aria-label="Ganti bukti (opsional)" />
+                      <input name="reason" required minLength={3} maxLength={500} placeholder="Alasan koreksi" className={inputCls} autoComplete="off" />
+                      <SubmitButton variant="ghost" pendingText="Menyimpan…">Simpan perubahan</SubmitButton>
+                    </ActionForm>
+                    <ul className="mt-2 flex w-64 flex-col gap-1 text-xs text-ink-500">
+                      {history.map((l) => (
+                        <li key={l.id}>
+                          {jktDateTime(l.at)} · {l.previous_kind ? ABSENCE[l.previous_kind].label : 'Baru'} → {l.kind ? ABSENCE[l.kind].label : 'Dihapus'} · {nameOf(profiles, l.actor_id)}
+                          {l.reason ? ` — ${l.reason}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                  ) : (
                   <details className="text-sm">
                     <summary className="cursor-pointer font-semibold text-orange-700">Koreksi</summary>
                     <ActionForm action={correctAttendance} className="mt-2 flex w-64 flex-col gap-2">
@@ -156,6 +202,7 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
                       <SubmitButton variant="ghost">Simpan koreksi</SubmitButton>
                     </ActionForm>
                   </details>
+                  )}
                 </td>
               </tr>
             )
@@ -163,7 +210,8 @@ export async function AttendanceTab({ supabase, week, profiles }: Props) {
         </Table>
         <Note>
           Admin tidak bisa mengubah waktu absensi. Koreksi owner tidak menimpa data: event baru dicatat dengan alasan dan pelaku,
-          event lama tetap tersimpan, dan uang saku shift itu dihitung ulang.
+          event lama tetap tersimpan, dan uang saku shift itu dihitung ulang. Tidak Masuk, Izin, dan Sakit dipakai untuk shift yang belum dimulai;
+          bila admin sudah masuk lalu izin di tengah shift, gunakan Off / Izin.
         </Note>
       </Card>
     </>
@@ -258,6 +306,13 @@ export async function PayrollTab({ supabase, week, profiles }: Props) {
   }
   const rows = (data ?? []) as unknown as Row[]
   const staff = staffOf(profiles).filter((p) => p.is_active || rows.some((r) => r.admin_id === p.id))
+  const { data: absentRows } = await supabase.from('shifts').select('admin_id, absence_kind').gte('shift_date', week).lte('shift_date', addDays(week, 6)).not('absence_kind', 'is', null)
+  const absences = (id: string) =>
+    (Object.keys(ABSENCE) as AbsenceKind[])
+      .map((k) => ({ k, n: (absentRows ?? []).filter((a) => a.admin_id === id && a.absence_kind === k).length }))
+      .filter((x) => x.n)
+      .map((x) => `${ABSENCE[x.k].label} ${x.n}`)
+      .join(' · ')
   const STATUS = { open: { l: 'Terbuka', t: 'warning' as const }, approved: { l: 'Disetujui', t: 'info' as const }, paid: { l: 'Dicairkan', t: 'success' as const } }
 
   return (
@@ -277,14 +332,20 @@ export async function PayrollTab({ supabase, week, profiles }: Props) {
           if (!r)
             return (
               <tr key={p.id}>
-                <td className="font-semibold">{p.full_name}</td>
+                <td className="font-semibold">
+                  {p.full_name}
+                  {absences(p.id) && <div className="text-xs font-normal text-ink-500">{absences(p.id)}</div>}
+                </td>
                 <td colSpan={8} className="text-ink-500">Belum direkap.</td>
               </tr>
             )
           const payout = one(r.payouts)
           return (
             <tr key={p.id}>
-              <td className="font-semibold">{p.full_name}</td>
+              <td className="font-semibold">
+                {p.full_name}
+                {absences(p.id) && <div className="text-xs font-normal text-ink-500">{absences(p.id)}</div>}
+              </td>
               <td>{r.regular_completed} / {r.regular_scheduled}</td>
               <td>{minutesLabel(r.net_minutes)}</td>
               <td>{rupiah(r.base_total)}</td>
@@ -348,7 +409,7 @@ export async function BenefitTab({ supabase, week, profiles, sp = {} }: Props) {
   const [{ data }, { count: noClaim }] = await Promise.all([
     q,
     supabase.from('benefit_entitlements').select('id, shifts!inner(shift_date, status), benefit_claims(id)', { count: 'exact', head: true })
-      .gte('shifts.shift_date', from).lte('shifts.shift_date', to).is('benefit_claims', null),
+      .gte('shifts.shift_date', from).lte('shifts.shift_date', to).neq('shifts.status', 'absent').is('benefit_claims', null),
   ])
   type Row = {
     id: string; admin_id: string; cup_size: string | null; status: string; claimed_at: string; voided_at: string | null

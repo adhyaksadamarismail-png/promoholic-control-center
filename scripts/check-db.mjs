@@ -659,5 +659,88 @@ console.log('\nStatus kerja diatur owner')
   })
 }
 
+console.log('\nKetidakhadiran (Tidak Masuk, Izin, Sakit)')
+{
+  const set = (sh, kind, note = null, att = null, reason = null) => q(`select public.set_shift_absence($1, $2, $3, $4, $5)`, [sh, kind, note, att, reason])
+  const newShift = (admin, from, to) => as('owner', async () => {
+    const code = (await q(`select public.add_extra_shift($1, now() + $2::interval, now() + $3::interval) c`, [admin, from, to]))[0].c
+    return (await q(`select id from public.shifts where code = $1`, [code]))[0].id
+  })
+  const sh = await newShift(ids.dimas, '-30 minutes', '5 hours')
+  await expectFail('staf tidak bisa menetapkan ketidakhadiran', () => as('rani', () => set(sh, 'izin')), 'khusus owner')
+  await expectFail('status di luar 3 pilihan ditolak', () => as('owner', () => set(sh, 'cuti')), 'Pilih status')
+  await expectFail('menghapus status yang belum ada ditolak', () => as('owner', () => set(sh, null, null, null, 'uji')), 'tidak punya status')
+  await expectOk('owner menetapkan Izin dengan catatan', () => as('owner', () => set(sh, 'izin', 'Acara keluarga')))
+  const row = (await q(`select status::text st, absence_kind k from public.shifts where id = $1`, [sh]))[0]
+  row.st === 'absent' && row.k === 'izin' ? ok('shift tetap ada dengan status tidak hadir (Izin)') : bad('status absen', JSON.stringify(row))
+  await expectFail('admin tidak bisa absen masuk di shift itu', () => as('dimas', () => q(`select public.attendance_action($1, 'clock_in')`, [sh])), 'tercatat tidak hadir')
+  await expectFail('owner tidak bisa mengubah status kerja di shift itu', () => as('owner', () =>
+    q(`select public.owner_set_work_status($1, 'masuk', null, 'uji')`, [sh])), 'tercatat tidak hadir')
+  await expectFail('benefit tidak bisa diajukan', () => as('dimas', () => q(`select public.submit_benefit_claim($1, 'regular', 'x/y/z.jpg')`, [sh])), 'absen masuk')
+  const m = (await q(`select net_minutes n, (select count(*)::int from public.shift_earnings e where e.shift_id = $1) earn from public.shift_minutes($1)`, [sh]))[0]
+  m.n === 0 && m.earn === 0 ? ok('tidak ada jam kerja dan tidak ada uang saku') : bad('jam/uang saku', JSON.stringify(m))
+  await expectFail('koreksi tanpa alasan ditolak', () => as('owner', () => set(sh, 'sakit')), 'alasan')
+  await expectFail('koreksi tanpa perubahan ditolak', () => as('owner', () => set(sh, 'izin', 'Acara keluarga', null, 'uji ulang')), 'Tidak ada perubahan')
+  await expectOk('owner mengoreksi Izin menjadi Sakit dengan alasan', () => as('owner', () => set(sh, 'sakit', 'Demam', null, 'salah pilih')))
+  await expectOk('owner menghapus status', () => as('owner', () => set(sh, null, null, null, 'ternyata masuk')))
+  const back = (await q(`select status::text st, absence_kind k from public.shifts where id = $1`, [sh]))[0]
+  back.st === 'scheduled' && back.k === null ? ok('status kembali seperti semula') : bad('hapus status', JSON.stringify(back))
+  const log = await q(`select previous_kind p, kind k, actor_id a from public.shift_absence_log where shift_id = $1 order by id`, [sh])
+  log.map((x) => `${x.p}>${x.k}`).join(',') === 'null>izin,izin>sakit,sakit>null' && log.every((x) => x.a === ids.owner)
+    ? ok('riwayat lengkap dengan pelaku owner: ' + log.length + ' perubahan') : bad('riwayat', JSON.stringify(log))
+  const au = await q(`select after::text t from public.audit_log where action = 'attendance.absence' and entity_id = $1`, [sh])
+  au.length === 3 && !au.some((x) => x.t.includes('Demam')) ? ok('audit mencatat 3 perubahan tanpa isi catatan') : bad('audit', JSON.stringify(au))
+  await expectFail('riwayat tidak bisa diubah', () => q(`update public.shift_absence_log set note = 'x' where shift_id = $1`, [sh]))
+  await expectOk('admin bisa absen lagi setelah status dihapus', () => as('dimas', () => q(`select public.attendance_action($1, 'clock_in')`, [sh])))
+  await expectFail('shift yang sudah dimulai ditolak (pakai Off/Izin)', () => as('owner', () => set(sh, 'izin')), 'sudah dimulai')
+
+  // Shift lewat tanpa absen: bisa ditandai, tidak ikut "tidak lengkap", dan kembali ke status asalnya bila dihapus.
+  const past = await newShift(ids.dimas, '-30 hours', '-25 hours')
+  await as('owner', () => q(`select public.flag_incomplete_shifts()`))
+  await expectOk('shift lewat tanpa absen bisa ditandai Tidak Masuk', () => as('owner', () => set(past, 'tidak_masuk')))
+  await as('owner', () => q(`select public.flag_incomplete_shifts()`))
+  ;(await q(`select status::text s from public.shifts where id = $1`, [past]))[0].s === 'absent' ? ok('tombol "tanpa absen pulang" tidak menimpa status') : bad('flag menimpa')
+  await as('owner', () => set(past, null, null, null, 'salah tanggal'))
+  ;(await q(`select status::text s from public.shifts where id = $1`, [past]))[0].s === 'incomplete' ? ok('dihapus: kembali ke Tidak lengkap') : bad('status asal')
+
+  // Rekap: dihitung terjadwal, tidak selesai, nilai uang tidak berubah.
+  const mon = (await q(`select (date_trunc('week', current_date + 21))::date::text d`))[0].d
+  await q(`insert into public.shifts (code, admin_id, kind, shift_date, planned_start, planned_end, created_by) values ('REG-ABSEN-UJI', $1, 'regular', $2::date, ($2::date + time '02:00') at time zone 'UTC', ($2::date + time '10:00') at time zone 'UTC', $3)`, [ids.dimas, mon, ids.owner])
+  const reg = (await q(`select id from public.shifts where code = 'REG-ABSEN-UJI'`))[0].id
+  const pay = await as('owner', async () => {
+    await set(reg, 'sakit')
+    await q(`select public.build_weekly_payroll($1, $2::date)`, [ids.dimas, mon])
+    return (await q(`select regular_scheduled s, regular_completed c, base_total b, net_minutes n from public.weekly_payrolls where admin_id = $1 and period_start = $2::date`, [ids.dimas, mon]))[0]
+  })
+  pay.s === 1 && pay.c === 0 && Number(pay.b) === 0 && pay.n === 0 ? ok('rekap: 0 / 1 shift, Rp0, 0 jam') : bad('rekap', JSON.stringify(pay))
+
+  // Rekap terkunci.
+  const lock = await as('owner', async () => {
+    const w = (await q(`select period_start::text d from public.weekly_payrolls where admin_id = $1 and status = 'paid' limit 1`, [ids.rani]))[0]
+    return w?.d
+  })
+  if (lock) {
+    await q(`insert into public.shifts (code, admin_id, kind, shift_date, planned_start, planned_end, created_by) values ('REG-ABSEN-KUNCI', $1, 'regular', $2::date + 6, ($2::date + 6 + time '02:00') at time zone 'UTC', ($2::date + 6 + time '10:00') at time zone 'UTC', $3)`, [ids.rani, lock, ids.owner])
+    const locked = (await q(`select id from public.shifts where code = 'REG-ABSEN-KUNCI'`))[0].id
+    await expectFail('rekap yang sudah dibayar tidak bisa diubah lewat ketidakhadiran', () => as('owner', () => set(locked, 'izin')), 'terkunci')
+  } else bad('tidak ada rekap terkunci untuk diuji')
+
+  // Hak baca: catatan & lampiran khusus owner.
+  await as('dimas', async () => {
+    const l = await q(`select count(*)::int n from public.shift_absence_log`)
+    const st = await q(`select absence_kind k from public.shifts where id = $1`, [reg])
+    l[0].n === 0 && st[0]?.k === 'sakit' ? ok('admin melihat statusnya, tetapi tidak melihat catatan & lampiran') : bad('hak baca', JSON.stringify([l, st]))
+  })
+  await expectFail('staf tidak bisa mengunggah bukti', () => as('rani', () => q(`insert into storage.objects (bucket_id, name, owner) values ('absence-proofs', $1, auth.uid())`, [`${reg}/x.pdf`])))
+  await expectFail('lampiran yang tidak ada ditolak', () => as('owner', () => set(reg, 'sakit', 'Surat dokter', `${reg}/x.pdf`, 'tambah bukti')), 'Lampiran')
+  await as('owner', async () => {
+    await q(`insert into storage.objects (bucket_id, name, owner) values ('absence-proofs', $1, auth.uid())`, [`${reg}/x.pdf`])
+    await expectOk('owner melampirkan bukti', () => set(reg, 'sakit', 'Surat dokter', `${reg}/x.pdf`, 'tambah bukti'))
+    await expectOk('koreksi tanpa file baru', () => set(reg, 'izin', 'Surat dokter', null, 'ganti jenis'))
+    const a = await q(`select attachment_path p from public.shift_absence_log where shift_id = $1 order by id desc limit 1`, [reg])
+    a[0].p === `${reg}/x.pdf` ? ok('lampiran lama tetap berlaku setelah koreksi') : bad('lampiran', JSON.stringify(a))
+  })
+}
+
 console.log(failed ? `\n${failed} pemeriksaan gagal` : '\nSemua pemeriksaan lulus')
 process.exit(failed ? 1 : 0)

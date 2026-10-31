@@ -1,6 +1,6 @@
 'use server'
 
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { assertOwner } from '@/lib/auth'
@@ -229,4 +229,47 @@ export async function ownerSetStatus(_: ActionResult | null, fd: FormData): Prom
   if (reason.length < 3) return { ok: false, message: 'Tulis alasan perubahan status.' }
   return callRpc('owner_set_work_status', { p_shift: shift.data, p_status: status.data, p_at: at, p_reason: reason },
     `Status diubah menjadi ${WORK[status.data]}. Jam kerja dihitung ulang dari riwayat absensi.`, [...P, '/'])
+}
+
+const MAX_PROOF_BYTES = 5 * 1024 * 1024
+
+/** Jenis file dari isinya (bukan nama/ekstensi): gambar atau PDF. */
+function proofType(b: Uint8Array) {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ext: 'jpg', mime: 'image/jpeg' }
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { ext: 'png', mime: 'image/png' }
+  if (String.fromCharCode(...b.slice(0, 4)) === 'RIFF' && String.fromCharCode(...b.slice(8, 12)) === 'WEBP') return { ext: 'webp', mime: 'image/webp' }
+  if (String.fromCharCode(...b.slice(0, 5)) === '%PDF-') return { ext: 'pdf', mime: 'application/pdf' }
+  return null
+}
+
+/**
+ * Menetapkan, mengoreksi, atau menghapus ketidakhadiran. Bukti diunggah ke storage privat dengan sesi owner (RLS),
+ * lalu set_shift_absence memeriksa semua aturan. Bila ditolak database, file yang baru diunggah dibersihkan.
+ */
+export async function setAbsence(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const supabase = await assertOwner().catch(() => null)
+  if (!supabase) return { ok: false, message: 'Akses ditolak: khusus owner' }
+  const shift = uuid.safeParse(str(fd, 'shift'))
+  const kind = z.enum(['tidak_masuk', 'izin', 'sakit', 'hapus']).safeParse(str(fd, 'kind'))
+  const file = fd.get('proof')
+  if (!shift.success) return { ok: false, message: 'Pilih tanggal / shift.' }
+  if (!kind.success) return { ok: false, message: 'Pilih status.' }
+
+  let path: string | null = null
+  if (file instanceof File && file.size > 0) {
+    if (file.size > MAX_PROOF_BYTES) return { ok: false, message: 'Ukuran bukti maksimal 5 MB.' }
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const type = proofType(bytes)
+    if (!type) return { ok: false, message: 'Bukti harus JPG, PNG, WebP, atau PDF.' }
+    path = `${shift.data}/${randomUUID()}.${type.ext}`
+    const up = await supabase.storage.from('absence-proofs').upload(path, bytes, { contentType: type.mime, upsert: false })
+    if (up.error) return { ok: false, message: 'Gagal mengunggah bukti. Coba lagi.' }
+  }
+
+  const remove = kind.data === 'hapus'
+  const r = await callRpc('set_shift_absence', {
+    p_shift: shift.data, p_kind: remove ? null : kind.data, p_note: str(fd, 'note') || null, p_attachment: path, p_reason: str(fd, 'reason') || null,
+  }, remove ? 'Status ketidakhadiran dihapus.' : 'Ketidakhadiran tersimpan dan tercatat di riwayat.', [...P, '/'])
+  if (!r.ok && path) await createAdminClient().storage.from('absence-proofs').remove([path])
+  return r
 }

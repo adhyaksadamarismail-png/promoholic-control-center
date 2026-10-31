@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
 import { Icon, type IconName } from '@/components/icons'
 import { WEEKDAYS, addDays, dateLabel, isYmd, jktDate, jktTime, rupiah, weekStart } from '@/lib/format'
-import { effectiveEvents, firstOf, shiftLabel, type AttendanceEvent } from '@/lib/attendance'
+import { ABSENCE, effectiveEvents, firstOf, shiftLabel, type AbsenceKind, type AttendanceEvent } from '@/lib/attendance'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +17,7 @@ type Shift = {
   planned_start: string
   planned_end: string
   status: string
+  absence_kind: AbsenceKind | null
   attendance_events: AttendanceEvent[]
   benefit_entitlements: { benefit_claims: Claim[] } | { benefit_claims: Claim[] }[] | null
 }
@@ -41,6 +42,7 @@ const DOT: Record<Tone, string> = {
 function shiftState(s: Shift, now: number): { label: string; tone: Tone } {
   const hasIn = s.attendance_events?.some((e) => e.kind === 'clock_in')
   if (s.status === 'cancelled') return { label: 'Dibatalkan', tone: 'neutral' }
+  if (s.absence_kind) return { label: ABSENCE[s.absence_kind].label, tone: s.absence_kind === 'tidak_masuk' ? 'danger' : s.absence_kind === 'sakit' ? 'warning' : 'neutral' }
   if (s.status === 'completed') return { label: 'Selesai', tone: 'done' }
   if (s.status === 'in_progress') {
     // Label dari event terakhir (sama dengan kartu Status admin): bekerja, istirahat, atau Off/Izin.
@@ -61,7 +63,7 @@ function benefitState(s: Shift): { label: string; tone: Tone } {
   if (c.some((x) => x.status === 'verified')) return { label: 'Benefit KopKen: sudah diambil', tone: 'done' }
   if (c.some((x) => x.status === 'pending')) return { label: 'Benefit KopKen: menunggu verifikasi', tone: 'warning' }
   if (c.some((x) => x.status === 'rejected')) return { label: 'Benefit KopKen: ditolak, ajukan ulang', tone: 'danger' }
-  if (s.status === 'cancelled') return { label: 'Benefit KopKen: tidak tersedia', tone: 'neutral' }
+  if (s.status === 'cancelled' || s.absence_kind) return { label: 'Benefit KopKen: tidak tersedia', tone: 'neutral' }
   const hasIn = s.attendance_events?.some((e) => e.kind === 'clock_in')
   return { label: hasIn ? 'Benefit KopKen: belum diajukan' : 'Benefit KopKen: tersedia setelah absen masuk', tone: 'neutral' }
 }
@@ -199,7 +201,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const now = Date.now()
   const todayStart = `${today}T00:00:00+07:00`
   const shiftCols =
-    'id, code, admin_id, kind, shift_date, planned_start, planned_end, status, attendance_events(id, kind, at, corrects_id, correction_reason), benefit_entitlements(benefit_claims(status, voided_at, claimed_at))'
+    'id, code, admin_id, kind, shift_date, planned_start, planned_end, status, absence_kind, attendance_events(id, kind, at, corrects_id, correction_reason), benefit_entitlements(benefit_claims(status, voided_at, claimed_at))'
   const orderCols = 'code, sell_price, gross_profit, status, needs_review, created_at'
 
 

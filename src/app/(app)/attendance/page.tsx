@@ -8,6 +8,7 @@ import {
   ACTION_LABEL,
   EARNING_STATUS,
   KIND_LABEL,
+  ABSENCE,
   SHIFT_STATUS,
   bonusRuleLabel,
   effectiveEvents,
@@ -21,6 +22,7 @@ import {
   offMinutes,
   workStatus,
   WORK_STATUS,
+  type AbsenceKind,
   type AttendanceEvent,
   type AttendanceKind,
 } from '@/lib/attendance'
@@ -54,6 +56,7 @@ type Shift = {
   planned_start: string
   planned_end: string
   status: string
+  absence_kind: AbsenceKind | null
   needs_review: boolean
   review_reasons: string[]
   attendance_events: AttendanceEvent[]
@@ -78,7 +81,7 @@ export default async function AttendancePage() {
     supabase
       .from('shifts')
       .select(
-        'id, code, kind, shift_date, planned_start, planned_end, status, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason, actor_id), benefit_entitlements(id, benefit_claims(id, claimed_at, voided_at, status, cup_size, receipt_path, review_note, verified_at)), shift_earnings(net_minutes, base_allowance, bonus, status)',
+        'id, code, kind, shift_date, planned_start, planned_end, status, absence_kind, needs_review, review_reasons, attendance_events(id, kind, at, corrects_id, correction_reason, actor_id), benefit_entitlements(id, benefit_claims(id, claimed_at, voided_at, status, cup_size, receipt_path, review_note, verified_at)), shift_earnings(net_minutes, base_allowance, bonus, status)',
       )
       .eq('admin_id', me)
       .gte('shift_date', addDays(week, -14))
@@ -203,6 +206,7 @@ export default async function AttendancePage() {
                 </span>
               </div>
 
+              {s.absence_kind && <Pill tone={ABSENCE[s.absence_kind].tone}>Tercatat {ABSENCE[s.absence_kind].label} untuk shift ini</Pill>}
               {s.status === 'completed' && <Pill tone="success">Shift selesai</Pill>}
               {s.status === 'incomplete' && <Pill tone="danger">Absensi tidak lengkap — ajukan koreksi ke owner</Pill>}
               {next.length > 0 && (
@@ -390,7 +394,7 @@ export default async function AttendancePage() {
         <ul className="flex flex-col divide-y divide-[#f1eadc]">
           {history.map((s) => {
             const eff = effectiveEvents(s.attendance_events ?? [])
-            const st = s.status === 'scheduled' ? { label: 'Tidak absen', tone: 'warning' as const } : SHIFT_STATUS[s.status]
+            const st = s.absence_kind ? ABSENCE[s.absence_kind] : s.status === 'scheduled' ? { label: 'Tidak absen', tone: 'warning' as const } : SHIFT_STATUS[s.status]
             const e = s.shift_earnings
             if (!eff.length)
               return (

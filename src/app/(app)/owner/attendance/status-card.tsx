@@ -1,11 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Card, Pill } from '@/components/ui'
 import { addDays, jktDate, jktTime, minutesLabel } from '@/lib/format'
-import { KIND_LABEL, WORK_STATUS, breakMinutes, effectiveEvents, netMinutes, offMinutes, workStatus, type AttendanceEvent } from '@/lib/attendance'
+import { ABSENCE, KIND_LABEL, WORK_STATUS, breakMinutes, effectiveEvents, netMinutes, offMinutes, workStatus, type AbsenceKind, type AttendanceEvent } from '@/lib/attendance'
 import { StatusControl } from './status-control'
 import type { Profile } from './sections'
 
-type Shift = { id: string; code: string; admin_id: string; shift_date: string; planned_start: string; planned_end: string; status: string; attendance_events: AttendanceEvent[] }
+type Shift = { id: string; code: string; admin_id: string; shift_date: string; planned_start: string; planned_end: string; status: string; absence_kind: AbsenceKind | null; attendance_events: AttendanceEvent[] }
 
 /**
  * Status kerja tiap admin aktif saat ini, dengan kontrol owner. Shift yang dipakai: shift terbuka (sedang bekerja /
@@ -15,7 +15,7 @@ export async function StatusCard({ supabase, profiles }: { supabase: SupabaseCli
   const today = jktDate()
   const { data } = await supabase
     .from('shifts')
-    .select('id, code, admin_id, shift_date, planned_start, planned_end, status, attendance_events(id, kind, at, corrects_id, correction_reason, actor_id)')
+    .select('id, code, admin_id, shift_date, planned_start, planned_end, status, absence_kind, attendance_events(id, kind, at, corrects_id, correction_reason, actor_id)')
     .gte('shift_date', addDays(today, -1))
     .lte('shift_date', today)
     .neq('status', 'cancelled')
@@ -42,6 +42,16 @@ export async function StatusCard({ supabase, profiles }: { supabase: SupabaseCli
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cream-300 p-3">
                 <span className="font-semibold">{p.full_name}</span>
                 <span className="text-sm text-ink-500">Tidak ada shift hari ini</span>
+              </li>
+            )
+          if (s.absence_kind)
+            return (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cream-300 p-3 sm:p-4">
+                <span className="flex flex-col">
+                  <span className="font-display text-base font-semibold">{p.full_name}</span>
+                  <span className="text-xs text-ink-500">{s.code} · jadwal {jktTime(s.planned_start)}–{jktTime(s.planned_end)}</span>
+                </span>
+                <Pill tone={ABSENCE[s.absence_kind].tone}>{ABSENCE[s.absence_kind].label}</Pill>
               </li>
             )
           const eff = effectiveEvents(s.attendance_events ?? [])
