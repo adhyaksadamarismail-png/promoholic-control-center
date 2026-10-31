@@ -51,7 +51,7 @@ export async function panelAddStock(_: ActionResult | null, fd: FormData): Promi
 /** Restock Baperan: satu nomor telepon = satu akun Baperan dengan tepat 1 voucher. Aturan lengkap di database. */
 export async function panelRestockBaperan(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const idem = uuid.safeParse(str(fd, 'idem'))
-  const phone = str(fd, 'phone').replace(/\D/g, '').replace(/^62/, '0')
+  const phone = str(fd, 'phone').replace(/\D/g, '').replace(/^62/, '0').replace(/^(8\d{8,11})$/, '0$1')
   const pin = str(fd, 'pin')
   const costRaw = str(fd, 'unit_cost').replace(/[^\d]/g, '')
   const date = str(fd, 'received_on')

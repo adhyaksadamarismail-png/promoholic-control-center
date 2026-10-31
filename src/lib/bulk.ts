@@ -84,21 +84,43 @@ export const BULK_EXAMPLE: Record<BulkSource, Record<BulkMode, string>> = {
   },
 }
 
-/** Bulk Baperan: satu baris = nomor telepon | PIN (PIN boleh kosong). Validasi sebenarnya di database. */
-export type BaperanRow = { line: number; number: string; pin: string | null; parseError?: string }
-export const BAPERAN_EXAMPLE = '081234567890 | 123456\n081234567891 |\n081234567892 | 654321'
+/**
+ * Bulk Baperan, dua metode identitas: nomor telepon | PIN (PIN boleh kosong), atau ID akun website sumber (satu per baris).
+ * Validasi sebenarnya di database; kesalahan satu baris hanya menolak baris itu.
+ */
+export type BaperanIdentity = 'phone' | 'account_id'
+export type BaperanRow = { line: number; number: string | null; account_id: string | null; pin: string | null; parseError?: string }
+export const BAPERAN_EXAMPLE: Record<BaperanIdentity, string> = {
+  phone: '081234567890 | 123456\n081234567891 |\n081234567892 | 654321',
+  account_id: '197865\n197866\n197867',
+}
 
-export function parseBaperan(text: string): BaperanRow[] {
+const validPhone = (t: string) => /^(62|0)?8\d{8,11}$/.test(t.replace(/\D/g, ''))
+
+/** Nomor dan PIN yang dipisah spasi: token terakhir adalah PIN hanya bila sisanya sudah nomor telepon utuh. */
+function splitPhonePin(line: string): string[] {
+  if (/[|,;\t]/.test(line)) return splitLine(line)
+  const tokens = line.split(/\s+/)
+  const head = tokens.slice(0, -1).join('')
+  return tokens.length > 1 && validPhone(head) ? [head, tokens[tokens.length - 1]] : [line]
+}
+
+export function parseBaperan(text: string, identity: BaperanIdentity = 'phone'): BaperanRow[] {
   const rows: BaperanRow[] = []
   text.replace(/^﻿/, '').split(/\r?\n/).forEach((raw, i) => {
     const line = raw.trim()
     if (!line || line.startsWith('#')) return
-    const [number = '', pin = '', ...rest] = splitLine(line)
-    // Baris judul CSV (mis. "nomor,pin") dilewati.
-    if (!rows.length && /^[a-z_ ]+$/i.test(number) && !/\d/.test(number)) return
-    const row: BaperanRow = { line: i + 1, number, pin: pin || null }
+    const [first = '', second = '', ...rest] = identity === 'phone' ? splitPhonePin(line) : line.split(/[|,;\s]+/)
+    // Baris judul CSV (mis. "nomor,pin" atau "id_akun") dilewati.
+    if (!rows.length && /^[a-z_ ]+$/i.test(first) && !/\d/.test(first)) return
+    if (identity === 'account_id') {
+      const row: BaperanRow = { line: i + 1, number: null, account_id: first, pin: null }
+      if (second || rest.some((t) => t)) row.parseError = 'ID Akun tidak memakai PIN: cukup satu ID per baris'
+      rows.push(row)
+      return
+    }
+    const row: BaperanRow = { line: i + 1, number: first, account_id: null, pin: second || null }
     if (rest.some((t) => t)) row.parseError = 'Kolom berlebih: format nomor | PIN'
-    else if (pin && !/^\d{4,8}$/.test(pin)) row.parseError = 'PIN harus 4–8 angka'
     rows.push(row)
   })
   return rows

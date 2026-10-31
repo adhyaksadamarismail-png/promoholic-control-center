@@ -68,7 +68,7 @@ export async function loadAccounts(supabase: SupabaseClient, f: AccountFilter) {
 
 export type BaperanFilter = { q?: string; bstatus?: string }
 
-/** Inventaris Baperan: satu akun = satu nomor = 1 voucher. Tanggal restock & modal dari restock pembuatnya. */
+/** Inventaris Baperan: satu akun = satu identitas = 1 voucher. Tanggal restock & modal dari restock pembuatnya. */
 export async function loadBaperan(supabase: SupabaseClient, f: BaperanFilter) {
   const { data: accounts } = await supabase
     .from('account_list')
@@ -82,7 +82,7 @@ export async function loadBaperan(supabase: SupabaseClient, f: BaperanFilter) {
   ])
   const today = jktDate()
   const rows = (accounts ?? []).map((a) => ({
-    ...(a as { id: string; account_code: string; account_number: string; pin: string | null; entered_at: string; active_until: string }),
+    ...(a as { id: string; account_code: string; account_number: string | null; pin: string | null; entered_at: string; active_until: string }),
     voucher: (vouchers ?? []).find((v) => v.account_id === a.id) as { id: string; code: string; status: VoucherStatus; allocated_cost: number | string | null } | undefined,
     restock: (restocks ?? []).find((r) => r.account_id === a.id) as { code: string; received_on: string | null; unit_cost: number | string | null; source_note: string | null } | undefined,
     status: baperanStatus(a.active_until, today),
@@ -90,7 +90,7 @@ export async function loadBaperan(supabase: SupabaseClient, f: BaperanFilter) {
   const q = f.q?.replace(/[^0-9a-z-]/gi, '').toLowerCase()
   const filtered = rows.filter(
     (r) =>
-      (!q || r.account_number.includes(q.replace(/^62/, '0').replace(/-/g, '')) || r.account_code.toLowerCase().includes(q) || (r.voucher?.code ?? '').toLowerCase().includes(q)) &&
+      (!q || r.account_number?.includes(q.replace(/^62/, '0').replace(/-/g, '')) || r.account_code.toLowerCase().includes(q) || (r.voucher?.code ?? '').toLowerCase().includes(q)) &&
       (!f.bstatus || r.status === f.bstatus),
   )
   return { rows, filtered, today }

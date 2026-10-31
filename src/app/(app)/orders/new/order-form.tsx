@@ -5,7 +5,7 @@ import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useMemo, useState } from 'react'
 import { currentVersion, previewDiscount, ruleLabel, type Rule } from '@/lib/inventory'
 import { createOrder } from './actions'
-import { baperanStatus, phoneLabel } from '@/lib/baperan'
+import { baperanIdentity, baperanStatus } from '@/lib/baperan'
 
 type Brand = { id: string; name: string }
 type Account = { id: string; brand_id: string; account_code: string; source: 'vm' | 'panel'; active_until: string | null; inventory: string; account_number: string | null }
@@ -173,9 +173,9 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
                 onClick={() => { setAccountId(a.id); setVoucherId(null) }}
                 className={`flex flex-col items-start rounded-xl border px-3 py-2 text-left ${accountId === a.id ? 'border-orange-500 bg-orange-100' : 'border-[#dcd2bf] bg-white'}`}
               >
-                <span className="font-mono text-sm font-semibold">{a.inventory === 'baperan' ? phoneLabel(a.account_number) : a.account_code}</span>
+                <span className="font-mono text-sm font-semibold">{a.inventory === 'baperan' ? baperanIdentity(a).label : a.account_code}</span>
                 <span className="text-xs text-ink-500">
-                  {a.inventory === 'baperan' ? `Baperan · ${a.account_code}` : `${availByAccount.get(a.id)?.length} voucher · ${a.source === 'vm' ? 'VM' : 'Panel'}`}
+                  {a.inventory === 'baperan' ? (a.account_number ? `Baperan · ${a.account_code}` : 'Baperan · ID Akun') : `${availByAccount.get(a.id)?.length} voucher · ${a.source === 'vm' ? 'VM' : 'Panel'}`}
                   {a.active_until && ` · s/d ${a.active_until.slice(8, 10)}/${a.active_until.slice(5, 7)}`}
                 </span>
                 {a.inventory === 'baperan' && baperanStatus(a.active_until) === 'segera' && (

@@ -393,6 +393,64 @@ console.log('\nBulk Restock Baperan & ketentuan Rp17.000')
     ? ok('setiap nomor = 1 akun Baperan, 1 voucher, masa aktif batch, tercatat di riwayat batch') : bad('akun bulk Baperan', JSON.stringify(acc))
   const b = await as('rani', () => q(`select mode, source from public.restock_batches where code = $1`, [res?.batch]))
   b[0]?.mode === 'baperan' && b[0]?.source === 'panel' ? ok('riwayat batch terlihat staf (mode baperan)') : bad('batch Baperan', JSON.stringify(b))
+
+  // Nomor telepon: angka 0 yang hilang dikembalikan.
+  const noZero = await as('rani', () => q(`select public.bulk_restock_baperan_validate($1::jsonb) v`, [rows([{ line: 1, number: '81255500231', pin: null }])]))
+  noZero[0].v[0].ok && noZero[0].v[0].number === '081255500231' ? ok('nomor tanpa angka 0 di depan dinormalkan') : bad('normalisasi nomor', JSON.stringify(noZero[0].v))
+
+  // Metode ID Akun
+  const idVal = await as('rani', () => q(`select public.bulk_restock_baperan_validate($1::jsonb) v`, [rows([
+    { line: 1, account_id: '197865' },
+    { line: 2, account_id: 'BP-197866' },
+    { line: 3, account_id: 'bp197867' },
+    { line: 4, account_id: '197865' },
+    { line: 5, account_id: 'BP-197866' },
+    { line: 6, account_id: 'abc123' },
+    { line: 7, account_id: '081234567890' },
+    { line: 8, account_id: '197868', pin: '1234' },
+    { line: 9, account_id: '12' },
+  ])]))
+  const iv = idVal[0].v
+  const codes = iv.slice(0, 3).map((x) => x.code).join(',')
+  iv.slice(0, 3).every((x) => x.ok && x.number === null && x.counts.BP === 1) && codes === 'BP-197865,BP-197866,BP-197867'
+    ? ok('preview ID: prefix ditambahkan sekali, ' + codes) : bad('preview ID akun', JSON.stringify(iv.slice(0, 3)))
+  ;/duplikat/.test(iv[3].error) && /duplikat/.test(iv[4].error) ? ok('ID ganda di batch ditolak, juga bila salah satunya berprefix') : bad('duplikat ID', JSON.stringify(iv.slice(3, 5)))
+  !iv[5].ok && /angka/.test(iv[5].error) && !iv[8].ok ? ok('ID bukan angka atau terlalu pendek ditolak') : bad('format ID', JSON.stringify([iv[5], iv[8]]))
+  ;/nomor telepon/i.test(iv[6].error) ? ok('nomor telepon di mode ID ditolak dengan alasan jelas') : bad('telepon di mode ID', JSON.stringify(iv[6]))
+  ;/tidak memakai PIN/.test(iv[7].error) ? ok('PIN di mode ID ditolak') : bad('PIN di mode ID', JSON.stringify(iv[7]))
+
+  const idKey = (await q('select gen_random_uuid() k'))[0].k
+  const idBody = rows([{ line: 3, account_id: '197865' }, { line: 7, account_id: 'BP-197866' }])
+  const idR = await expectOk('bulk ID: 2 akun tersimpan', () => as('rani', () =>
+    q(`select public.bulk_restock_baperan($1::jsonb, '2026-12-31', $2::date, 2500, 'Reseller E', $3) r`, [idBody, today, idKey])))
+  const ir = idR?.[0].r
+  ir?.rows?.map((x) => `${x.line}:${x.account}`).join() === '3:BP-197865,7:BP-197866' && Number(ir?.total_cost) === 5000
+    ? ok('hasil per baris cocok dengan nomor baris, modal Rp5.000') : bad('hasil bulk ID', JSON.stringify(ir))
+  const idAgain = await as('rani', () => q(`select public.bulk_restock_baperan($1::jsonb, '2026-12-31', $2::date, 2500, 'Reseller E', $3) r`, [idBody, today, idKey]))
+  idAgain[0].r.repeated && idAgain[0].r.rows.length === 2 ? ok('kiriman ganda ID: batch sama, hasil per baris tetap ada') : bad('idempotensi ID', JSON.stringify(idAgain[0].r))
+  const ia = await q(`select a.account_code, a.account_number, a.pin, a.inventory, v.code vc, v.status::text st, v.allocated_cost c
+                      from public.accounts a join public.vouchers v on v.account_id = a.id where a.account_code in ('BP-197865','BP-197866') order by 1`)
+  ia.length === 2 && ia.every((x) => x.account_number === null && x.pin === null && x.inventory === 'baperan' && x.st === 'available' && Number(x.c) === 2500) && ia[0].vc === 'V-KKBP197865-BP01'
+    ? ok('akun ID tanpa nomor & PIN, tepat 1 voucher, ' + ia[0].vc) : bad('akun ID', JSON.stringify(ia))
+  const dupId = await as('rani', () => q(`select public.bulk_restock_baperan_validate($1::jsonb) v`, [rows([{ line: 1, account_id: '197865' }, { line: 2, account_id: 'BP-197865' }])]))
+  dupId[0].v.every((x) => !x.ok) && /sudah terdaftar/.test(dupId[0].v[0].error) ? ok('ID yang sudah tersimpan ditolak: ' + dupId[0].v[0].error) : bad('ID terdaftar', JSON.stringify(dupId[0].v))
+  await expectFail('ID terdaftar tidak bisa disimpan lewat kiriman baru', () => as('rani', () =>
+    q(`select public.bulk_restock_baperan($1::jsonb, '2026-12-31', $2::date, null, null, gen_random_uuid())`, [rows([{ line: 1, account_id: '197865' }]), today])), 'sudah terdaftar')
+  await expectFail('database menolak akun ber-ID dengan PIN', () => q(`update public.accounts set pin = '1234' where account_code = 'BP-197865'`), 'accounts_source_fields')
+  await expectFail('database menolak akun Baperan tanpa nomor dengan kode bebas', () => q(`update public.accounts set account_number = null where account_code = 'BP-0001'`), 'accounts_source_fields')
+  const idAcc = (await q(`select id from public.accounts where account_code = 'BP-197865'`))[0].id
+  await expectFail('owner tidak bisa memberi PIN ke akun ber-ID', () => as('owner', () =>
+    q(`select public.owner_update_baperan($1, '2027-01-31', '1234', 'uji pin')`, [idAcc])), 'tidak memakai PIN')
+  await expectOk('owner memperpanjang akun ber-ID', () => as('owner', () => q(`select public.owner_update_baperan($1, '2027-01-31', null, 'perpanjang')`, [idAcc])))
+  const idVoucher = (await q(`select id from public.vouchers where account_id = $1`, [idAcc]))[0].id
+  await as('rani', async () => {
+    const o = await expectOk('voucher akun ber-ID bisa dipakai untuk order (potongan Rp8.000)', () =>
+      q(`select public.record_order($1,'Uji BP ID','081234567890',null,30000,25000,0,null,null,true,gen_random_uuid()) c`, [idVoucher]))
+    const d = o && (await q(`select discount, allocated_cost from public.orders where code = $1`, [o[0].c]))[0]
+    d && d.discount === 8000 && Number(d.allocated_cost) === 2500 ? ok('order akun ber-ID: potongan Rp8.000, modal Rp2.500') : bad('order akun ID', JSON.stringify(d))
+  })
+  const idList = await as('rani', () => q(`select account_code, account_number, pin from public.account_list where id = $1`, [idAcc]))
+  idList[0]?.account_code === 'BP-197865' && idList[0]?.account_number === null ? ok('staf melihat akun ber-ID di daftar') : bad('view ID', JSON.stringify(idList))
   // Ketentuan: potongan Rp8.000, minimum pembelian Rp17.000.
   const bv = (await q(`select v.id from public.vouchers v join public.accounts a on a.id = v.account_id where a.account_number = '081255500222'`))[0].id
   await expectFail('order Baperan di bawah Rp17.000 ditolak', () => as('rani', () =>

@@ -23,7 +23,7 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
   )
 }
 const digits = (v: string) => v.replace(/\D/g, '')
-const normalizePhone = (v: string) => digits(v).replace(/^62/, '0')
+const normalizePhone = (v: string) => digits(v).replace(/^62/, '0').replace(/^(8\d{8,11})$/, '0$1')
 
 type Saved = { restock: string; account: string; voucher: string; repeated: boolean }
 

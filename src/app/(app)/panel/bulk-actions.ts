@@ -39,13 +39,19 @@ export async function commitBulk(
   }, 'Restock tersimpan.', PATHS)
 }
 
-// Bulk Baperan: satu baris = nomor telepon | PIN. Izin & semua aturan diperiksa di database.
-const BaperanRow = z.object({ line: z.number().int(), number: z.string().max(24), pin: z.string().max(8).nullable() })
+// Bulk Baperan: satu baris = nomor telepon | PIN, atau ID akun. Izin & semua aturan diperiksa di database,
+// jadi batas panjang di sini longgar supaya satu baris salah ditolak sendiri, bukan menggagalkan seluruh batch.
+const BaperanRow = z.object({
+  line: z.number().int(),
+  number: z.string().max(64).nullable(),
+  account_id: z.string().max(64).nullable(),
+  pin: z.string().max(64).nullable(),
+})
 const BaperanRows = z.array(BaperanRow).min(1).max(300)
 
 export async function previewBulkBaperan(rows: z.input<typeof BaperanRows>): Promise<ActionResult> {
   const p = BaperanRows.safeParse(rows)
-  if (!p.success) return { ok: false, message: 'Data tidak valid. Periksa format baris (nomor | PIN).' }
+  if (!p.success) return { ok: false, message: 'Data tidak valid. Periksa format baris.' }
   return callRpc('bulk_restock_baperan_validate', { p_rows: p.data }, '')
 }
 

@@ -9,7 +9,7 @@ import { ACCOUNT_STATE, LEDGER_REASON, VOUCHER_STATUS, accountState, currentVers
 import { cancelUseNow, deleteAccount, requestStockAdjust, requestUseCancel } from './actions'
 import { UseVoucherForm } from './use-voucher'
 import { CopyButton } from '@/components/copy-button'
-import { BAPERAN_STATUS, baperanStatus, phoneLabel } from '@/lib/baperan'
+import { BAPERAN_STATUS, baperanIdentity, baperanStatus } from '@/lib/baperan'
 
 export const dynamic = 'force-dynamic'
 
@@ -105,14 +105,15 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
 
   const baperan = account.inventory === 'baperan'
   const bStatus = baperan ? BAPERAN_STATUS[baperanStatus(account.active_until)] : null
+  const identity = baperan ? baperanIdentity(account) : null
   const info: [string, React.ReactNode][] = [
     ['Brand', brand?.name],
     ['Sumber', baperan ? 'Inventaris Baperan' : account.source === 'vm' ? 'Virtual Machine' : 'Panel Admin'],
     ...(account.source === 'vm' ? ([['Nomor akun', <span key="n" className="font-mono">{account.account_number}</span>]] as [string, React.ReactNode][]) : []),
-    ...(baperan
+    ...(identity
       ? ([
-          ['Nomor telepon', <span key="n" className="flex flex-wrap items-center gap-2"><span className="font-mono">{phoneLabel(account.account_number)}</span><CopyButton value={account.account_number} label="Salin nomor" /></span>],
-          ...(isOwner ? [['PIN', account.pin ? <span key="p" className="flex flex-wrap items-center gap-2"><span className="font-mono">{account.pin}</span><CopyButton value={account.pin} label="Salin PIN" /></span> : '—']] : []),
+          [identity.kind === 'phone' ? 'Nomor telepon' : 'ID akun', <span key="n" className="flex flex-wrap items-center gap-2"><span className="font-mono">{identity.label}</span><CopyButton value={identity.copy} label={identity.kind === 'phone' ? 'Salin nomor' : 'Salin ID'} /></span>],
+          ...(isOwner && identity.kind === 'phone' ? [['PIN', account.pin ? <span key="p" className="flex flex-wrap items-center gap-2"><span className="font-mono">{account.pin}</span><CopyButton value={account.pin} label="Salin PIN" /></span> : '—']] : []),
         ] as [string, React.ReactNode][])
       : []),
     ...(isOwner && account.vm_device_id ? ([['Device', account.vm_device_id]] as [string, React.ReactNode][]) : []),

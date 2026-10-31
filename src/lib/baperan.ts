@@ -1,4 +1,4 @@
-// Inventaris Baperan: satu nomor telepon = satu akun = tepat 1 voucher Baperan. Status masa aktif dihitung dari
+// Inventaris Baperan: satu identitas (nomor telepon atau ID akun) = satu akun = tepat 1 voucher Baperan. Status masa aktif dihitung dari
 // accounts.active_until (berlaku sampai akhir tanggalnya, WIB). Kedaluwarsa juga ditolak database saat order.
 import type { Tone } from '@/components/ui'
 import { addDays, jktDate } from '@/lib/format'
@@ -28,6 +28,13 @@ export function daysLeftLabel(activeUntil: string, today: string = jktDate()) {
   if (d < 0) return `lewat ${-d} hari`
   if (d === 0) return 'hari terakhir'
   return `${d} hari lagi`
+}
+
+/** Identitas akun Baperan: nomor telepon bila ada, selain itu ID akun (BP-197865). `copy` adalah nilai yang disalin. */
+export function baperanIdentity(a: { account_number: string | null; account_code: string }) {
+  return a.account_number
+    ? { kind: 'phone' as const, label: phoneLabel(a.account_number), copy: a.account_number }
+    : { kind: 'account_id' as const, label: a.account_code, copy: a.account_code }
 }
 
 /** Tampilan nomor telepon: 0812-3456-7890. Nilai yang disalin tetap tanpa tanda hubung. */

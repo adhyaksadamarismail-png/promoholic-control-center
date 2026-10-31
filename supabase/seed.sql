@@ -120,6 +120,8 @@ begin
   perform public.restock_baperan('0812-5550-0001', '1234', 3000, current_date - 2, current_date + 25, 'Reseller Baperan', gen_random_uuid());
   perform public.restock_baperan('0812-5550-0002', null, null, current_date - 5, current_date + 2, 'Reseller Baperan', gen_random_uuid());
   perform public.restock_baperan('0812-5550-0003', '987654', 3000, current_date - 20, current_date - 1, 'Reseller Baperan', gen_random_uuid());
+  -- Metode ID Akun: tanpa nomor telepon dan tanpa PIN.
+  perform public._create_baperan(null, null, 3000, current_date - 3, current_date + 20, 'Reseller Baperan', gen_random_uuid(), null, '197800');
 
   perform public.panel_add_account('KK', 'KK-0187', null, '2026-10-29', '{}', gen_random_uuid());
   perform public.panel_add_account('KK', 'KK-0233', null, '2026-11-10', '{}', gen_random_uuid());

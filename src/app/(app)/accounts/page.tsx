@@ -36,7 +36,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   if (view === 'baperan')
     return (
       <div className="mx-auto flex max-w-6xl flex-col gap-5">
-        <PageHeader eyebrow="Inventaris terpisah · 1 nomor = 1 akun = 1 voucher" title="Daftar Akun">
+        <PageHeader eyebrow="Inventaris terpisah · 1 identitas = 1 akun = 1 voucher" title="Daftar Akun">
           {(role === 'owner' || viewer.profile.can_restock_panel) && (
             <Link href="/panel?mode=extra" className="flex min-h-11 items-center rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white">Restock Baperan</Link>
           )}
