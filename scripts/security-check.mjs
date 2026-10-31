@@ -283,6 +283,15 @@ section('7. Akun nonaktif & token palsu')
   await expectDenied('token JWT palsu atas nama owner', f.from('audit_log').select('id').limit(1))
 }
 
+section('7b. Tinjauan order di Persetujuan')
+{
+  await expectDenied('staf memutuskan pengajuan lewat API', rani.rpc('decide_approval', { p_request: randomUUID(), p_approve: true }))
+  await expectDenied('staf menghapus tanda tinjauan langsung', rani.from('orders').update({ needs_review: false }).eq('admin_id', ids.rani).select('id'))
+  await expectDenied('staf membuat pengajuan tinjauan langsung', rani.from('approval_requests').insert({ kind: 'order_review', target_id: randomUUID(), reason: 'palsu' }))
+  await expectDenied('staf memanggil fungsi trigger antrean', rani.rpc('_order_review_sync'))
+  await expectDenied('pengunjung tanpa login membaca antrean', client().from('approval_requests').select('id').limit(1))
+}
+
 // ───────────────────────────────────────────────────────────
 section('8. Wajib ganti password setelah reset')
 {

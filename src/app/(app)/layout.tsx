@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
-import { MobileNav, SideNav } from './nav'
+import { MobileNav, SideNav, type NavItem } from './nav'
 import { PageTransition } from '@/components/page-transition'
 
 const STAFF_NAV = [
@@ -23,9 +23,16 @@ const OWNER_NAV = [
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer() // sama dengan yang dipakai halaman: satu pemeriksaan per request
   if (!viewer) redirect('/login')
-  const { profile, isOwner } = viewer
+  const { supabase, profile, isOwner } = viewer
   if (profile.must_change_password) redirect('/account/password')
   const roleLabel = isOwner ? 'Owner' : 'Staf'
+  // Owner tidak absen: kehadiran staf dikelola lewat Absensi & Staf. Halaman /attendance mengarahkan owner ke sana.
+  const staffNav = isOwner ? STAFF_NAV.filter((n) => n.href !== '/attendance') : STAFF_NAV
+  let ownerNav: NavItem[] | null = null
+  if (isOwner) {
+    const { count } = await supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+    ownerNav = OWNER_NAV.map((n) => (n.href === '/approvals' ? { ...n, badge: count ?? 0 } : n))
+  }
   const logo = (
     <span className="flex flex-col">
       <span className="font-display text-xl font-extrabold text-white">
@@ -38,13 +45,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       {/* HP: header ringkas dengan menu lipat (backdrop, bisa digulir). Tanpa bilah tab bawah. */}
-      <MobileNav logo={logo} staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} name={profile.full_name} role={roleLabel} />
+      <MobileNav logo={logo} staff={staffNav} owner={ownerNav} name={profile.full_name} role={roleLabel} />
 
       {/* Tablet & desktop: sidebar menempel setinggi layar dan tidak ikut bergulir; menu panjang bergulir di dalam sidebar. */}
       <aside className="sticky top-0 hidden h-dvh flex-[0_0_244px] flex-col gap-4 self-start bg-navy-900 px-3.5 py-5 text-[#c5cbd9] md:flex">
         <div className="shrink-0 px-2 pb-2">{logo}</div>
         <div className="sidebar-scroll -mx-1.5 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5">
-          <SideNav staff={STAFF_NAV} owner={isOwner ? OWNER_NAV : null} />
+          <SideNav staff={staffNav} owner={ownerNav} />
         </div>
         <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg bg-navy-800 px-2.5 py-3">
           <div className="flex flex-col">

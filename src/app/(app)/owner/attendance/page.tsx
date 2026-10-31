@@ -30,7 +30,7 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
     supabase.from('profiles').select('id, username, full_name, role, is_active, can_restock_panel, must_change_password').order('role').order('username'),
     supabase.from('shifts').select('status, absence_kind, needs_review, benefit_entitlements(benefit_claims(voided_at, status))').gte('shift_date', week).lte('shift_date', end),
     supabase.from('shift_earnings').select('id, shifts!inner(shift_date)', { count: 'exact', head: true }).eq('status', 'pending').gte('shifts.shift_date', week).lte('shifts.shift_date', end),
-    supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending').in('kind', ['attendance_fix', 'benefit_fix']),
   ])
   const list = shifts ?? []
   type Ent = { benefit_claims: { voided_at: string | null; status: string }[] }

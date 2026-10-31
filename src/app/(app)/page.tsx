@@ -223,12 +223,13 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   let ownerInfo: { approvals: number; benefits: number; earnings: number; used: number; review: number; accountsReview: number } | null = null
   let activities: Activity[] = []
   if (isOwner) {
-    const [ap, bc, se, used, acc, audit] = await Promise.all([
+    const [ap, bc, se, used, acc, rv, audit] = await Promise.all([
       supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('benefit_claims').select('id', { count: 'exact', head: true }).eq('status', 'pending').is('voided_at', null),
       supabase.from('shift_earnings').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('stock_ledger').select('id', { count: 'exact', head: true }).eq('reason', 'use').gte('at', todayStart),
       supabase.from('accounts').select('id', { count: 'exact', head: true }).eq('needs_review', true),
+      supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('kind', 'order_review').eq('status', 'pending'),
       supabase.from('audit_log').select('id, action, after, actor_id, at').in('action', Object.keys(AUDIT)).order('at', { ascending: false }).limit(7),
     ])
     ownerInfo = {
@@ -236,7 +237,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       benefits: bc.count ?? 0,
       earnings: se.count ?? 0,
       used: used.count ?? 0,
-      review: confirmed.filter((o) => o.needs_review).length,
+      review: rv.count ?? 0,
       accountsReview: acc.count ?? 0,
     }
     activities = (audit.data ?? []).map((a) => ({
@@ -291,7 +292,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     ? [
         { href: '/finance', title: 'Keuangan', desc: 'Laba rugi, biaya & harga modal', icon: 'chart', tint: navyTint },
         { href: '/stock', title: 'Stok & Restock', desc: 'Cek stok dan riwayat restock', icon: 'box', tint: orangeTint },
-        { href: '/approvals', title: 'Persetujuan', desc: 'Pembatalan, koreksi stok & absensi', icon: 'shield', tint: navyTint, badge: ownerInfo?.approvals },
+        { href: '/approvals', title: 'Persetujuan', desc: 'Tinjauan order, pembatalan & koreksi', icon: 'shield', tint: navyTint, badge: ownerInfo?.approvals },
         { href: '/owner/attendance?tab=benefit&status=pending', title: 'Absensi & Staf', desc: 'Uang saku, rekap & verifikasi benefit', icon: 'calendar', tint: orangeTint, badge: ownerInfo?.benefits },
         { href: '/panel', title: 'Panel Admin', desc: 'Restock akun & voucher', icon: 'settings', tint: navyTint },
         { href: '/vm', title: 'Virtual Machine', desc: 'Akun per device (khusus owner)', icon: 'monitor', tint: orangeTint },
@@ -431,7 +432,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                       icon="alert"
                       value={(ownerInfo?.review ?? 0) + (ownerInfo?.accountsReview ?? 0)}
                       label="Perlu diperiksa"
-                      sub={`${ownerInfo?.review ?? 0} order hari ini ditandai · ${ownerInfo?.accountsReview ?? 0} akun ditandai`}
+                      sub={`${ownerInfo?.review ?? 0} order menunggu tinjauan · ${ownerInfo?.accountsReview ?? 0} akun ditandai`}
                     />
                   </div>
                 </>

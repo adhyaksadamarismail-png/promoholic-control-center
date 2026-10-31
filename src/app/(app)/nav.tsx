@@ -4,7 +4,7 @@ import Link, { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
-export type NavItem = { href: string; label: string }
+export type NavItem = { href: string; label: string; badge?: number }
 
 const isActive = (path: string, href: string) => (href === '/' ? path === '/' : path === href || path.startsWith(href + '/'))
 
@@ -12,9 +12,19 @@ const isActive = (path: string, href: string) => (href === '/' ? path === '/' : 
 function PendingDot() {
   const { pending } = useLinkStatus()
   return (
-    <span aria-hidden={!pending} className={`ml-auto size-2 shrink-0 rounded-full bg-orange-500 ${pending ? '' : 'invisible'}`}>
+    <span aria-hidden={!pending} className={`size-2 shrink-0 rounded-full bg-orange-500 ${pending ? '' : 'invisible'}`}>
       <span className="sr-only">{pending ? 'Memuat…' : ''}</span>
     </span>
+  )
+}
+
+/** Label menu, ditambah jumlah yang menunggu tindakan bila ada. */
+function NavLabel({ n }: { n: NavItem }) {
+  return (
+    <>
+      <span className="min-w-0 flex-1">{n.label}</span>
+      {!!n.badge && <span className="rounded-full bg-orange-500 px-1.5 text-xs font-bold text-navy-900">{n.badge}<span className="sr-only"> menunggu</span></span>}
+    </>
   )
 }
 
@@ -28,7 +38,7 @@ export function SideNav({ staff, owner }: { staff: NavItem[]; owner: NavItem[] |
       aria-current={isActive(path, n.href) ? 'page' : undefined}
       className="btn-press flex min-h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium hover:bg-navy-800 hover:text-white aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
     >
-      {n.label}
+      <NavLabel n={n} />
       <PendingDot />
     </Link>
   )
@@ -134,7 +144,7 @@ export function MobileNav({ logo, staff, owner, name, role }: { logo: React.Reac
                       aria-current={isActive(path, n.href) ? 'page' : undefined}
                       className="btn-press flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-[#c5cbd9] active:bg-navy-800 aria-[current=page]:bg-navy-700 aria-[current=page]:text-white"
                     >
-                      {n.label}
+                      <NavLabel n={n} />
                       <PendingDot />
                     </Link>
                   ))}

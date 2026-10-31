@@ -72,7 +72,8 @@ function one<T>(v: T | T[] | null | undefined): T | null {
 export default async function AttendancePage() {
   const viewer = await getViewer()
   if (!viewer) redirect('/login')
-  const { supabase, userId: me, profile } = viewer
+  const { supabase, userId: me, profile, isOwner } = viewer
+  if (isOwner) redirect('/owner/attendance') // halaman ini untuk absensi mandiri staf
   const today = jktDate()
   const week = weekStart(today)
   const nowIso = new Date().toISOString()

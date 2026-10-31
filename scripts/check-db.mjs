@@ -800,5 +800,101 @@ console.log('\nKetidakhadiran (Tidak Masuk, Izin, Sakit)')
   })
 }
 
+console.log('\nTinjauan order di Persetujuan')
+{
+  await db.exec('reset role')
+  const pick = async () => (await q(`select v.id from public.vouchers v
+    join public.voucher_types t on t.id = v.voucher_type_id
+    join public.accounts a on a.id = v.account_id
+    join lateral (select * from public.current_voucher_version(t.id)) ver on true
+    where v.status = 'available' and a.inventory = 'regular' and v.allocated_cost is not null and coalesce(ver.min_purchase, 0) <= 100000
+      and (ver.fixed_discount is not null or (ver.discount_pct is not null and ver.max_discount is not null))
+    order by v.code limit 1`))[0].id
+  // Harga merchant sengaja dibuat berbeda dari hitungan voucher, supaya order ditandai.
+  const record = (voucher, override, confirm = true) => q(
+    `select public.record_order($1, 'Uji Tinjau', '081234567890', null, 100000, 90000, 0, null, $2, $3, gen_random_uuid()) c`, [voucher, override, confirm])
+  const make = async (user, override, confirm) => {
+    const v = await pick()
+    const code = await as(user, async () => (await record(v, override, confirm))[0].c)
+    await db.exec('reset role')
+    return (await q(`select id from public.orders where code = $1`, [code]))[0].id
+  }
+  const reviews = async (id) => { await db.exec('reset role'); return q(`select id, status, requested_by, reason, decided_by, decision_note from public.approval_requests where kind = 'order_review' and target_id = $1`, [id]) }
+  const order = async (id) => { await db.exec('reset role'); return (await q(`select o.status, o.needs_review, o.review_status, o.review_reasons, o.net_profit, o.sell_price, v.status vstatus from public.orders o join public.vouchers v on v.id = o.voucher_id where o.id = $1`, [id]))[0] }
+  const decide = (req, approve, note) => q(`select public.decide_approval($1, $2, $3)`, [req, approve, note])
+
+  const clean = await make('rani', null)
+  ;(await reviews(clean)).length === 0 ? ok('order tanpa selisih tidak masuk antrean') : bad('order bersih masuk antrean')
+
+  const a = await make('rani', 50000)
+  const [ra] = await reviews(a)
+  ra?.status === 'pending' && ra.requested_by === ids.rani && ra.reason.includes('Harga merchant berbeda') ? ok('order bertanda langsung masuk antrean, tercatat atas nama admin') : bad('antrean', JSON.stringify(ra))
+
+  const draft = await make('rani', 50000, false)
+  ;(await reviews(draft)).length === 0 ? ok('draft bertanda belum masuk antrean') : bad('draft masuk antrean')
+  await as('rani', () => q(`select public.confirm_draft($1)`, [draft]))
+  ;(await reviews(draft))[0]?.status === 'pending' ? ok('draft masuk antrean saat dikonfirmasi') : bad('confirm_draft tidak membuat pengajuan')
+
+  const dropped = await make('rani', 50000, false)
+  await as('rani', () => q(`select public.cancel_draft($1)`, [dropped]))
+  ;(await reviews(dropped)).length === 0 ? ok('draft yang dibatalkan tidak masuk antrean') : bad('draft batal masuk antrean')
+
+  await expectFail('staf tidak bisa memutuskan tinjauan', () => as('rani', () => decide(ra.id, true, null)), 'owner')
+  await expectFail('menolak tanpa alasan ditolak', () => as('owner', () => decide(ra.id, false, '  ')), 'alasan')
+  const before = await order(a)
+  await as('owner', () => decide(ra.id, false, 'Harga merchant tidak wajar'))
+  const after = await order(a); const [rb] = await reviews(a)
+  after.status === 'confirmed' && after.vstatus === 'used' && !after.needs_review && after.review_status === 'rejected'
+    && after.net_profit === before.net_profit && after.sell_price === before.sell_price && after.review_reasons.length === before.review_reasons.length
+    ? ok('ditolak: order, voucher, dan angka tetap; label selesai; alasan awal tersimpan') : bad('tolak', JSON.stringify(after))
+  rb.status === 'rejected' && rb.decided_by === ids.owner && rb.decision_note === 'Harga merchant tidak wajar' ? ok('keputusan & identitas owner tercatat') : bad('catatan keputusan', JSON.stringify(rb))
+  await expectFail('keputusan tidak bisa diulang', () => as('owner', () => decide(ra.id, true, null)), 'sudah diputuskan')
+  await as('rani', async () => { (await q(`select decision_note n from public.approval_requests where target_id = $1`, [a]))[0]?.n ? ok('admin pencatat bisa membaca alasan penolakan') : bad('alasan tidak terbaca admin') })
+  await as('dimas', async () => { (await q(`select 1 from public.approval_requests where target_id = $1`, [a])).length === 0 ? ok('admin lain tidak bisa membaca keputusan') : bad('keputusan terbaca admin lain') })
+  await db.exec('reset role')
+  ;(await q(`select count(*)::int n from public.audit_log where entity_id = $1 and action = 'approval.reject'`, [ra.id]))[0].n === 1 ? ok('penolakan masuk audit log') : bad('audit penolakan')
+
+  const b = await make('rani', 50000)
+  const [rc] = await reviews(b)
+  await as('owner', () => decide(rc.id, true, null))
+  const ob = await order(b)
+  ob.status === 'confirmed' && !ob.needs_review && ob.review_status === 'approved' ? ok('disetujui: order tetap, label selesai') : bad('setujui', JSON.stringify(ob))
+
+  const c = await make('rani', 50000)
+  const [rd] = await reviews(c)
+  await as('owner', () => q(`select public.cancel_order_now($1, 'salah input')`, [c]))
+  const [rd2] = await reviews(c)
+  rd2.status === 'closed' && rd2.decision_note.includes('Ditutup otomatis') ? ok('order dibatalkan saat menunggu: pengajuan tertutup, tidak tersisa pending') : bad('tutup otomatis', JSON.stringify(rd2))
+  await expectFail('pengajuan yang tertutup tidak bisa diputuskan', () => as('owner', () => decide(rd.id, true, null)), 'sudah diputuskan')
+
+  const rej = await make('rani', 50000)
+  const [re] = await reviews(rej)
+  await as('owner', () => decide(re.id, false, 'Perlu dibatalkan'))
+  const req = await as('rani', async () => (await q(`select public.request_order_cancel($1, 'ikut keputusan owner') id`, [rej]))[0].id)
+  await as('owner', () => decide(req, true, null))
+  const orej = await order(rej)
+  orej.status === 'cancelled' && orej.vstatus === 'available' ? ok('order yang ditolak tetap bisa dibatalkan lewat jalur resmi') : bad('batal setelah ditolak', JSON.stringify(orej))
+
+  // Data lama: pernyataan pengisian yang sama persis dengan migrasi, pada order yang bertanda sebelum trigger ada.
+  await db.exec('reset role')
+  const sql = readFileSync(join(root, 'supabase/migrations/20261031000022_order_review.sql'), 'utf8')
+  const backfill = sql.slice(sql.indexOf('insert into public.approval_requests (kind, target_id, reason, requested_by, requested_at)'), sql.indexOf('-- 3. Keputusan owner'))
+  await db.exec('alter table public.orders disable trigger orders_review_sync')
+  const old = await make('rani', 50000)
+  const oldCancelled = await make('rani', 50000)
+  await db.exec(`update public.orders set status = 'cancelled', cancelled_at = now() where id = '${oldCancelled}'`)
+  await db.exec('alter table public.orders enable trigger orders_review_sync')
+  const money = (await q(`select coalesce(sum(net_profit), 0)::text s, count(*)::int n from public.orders`))[0]
+  await db.exec(backfill); await db.exec(backfill)
+  const moneyAfter = (await q(`select coalesce(sum(net_profit), 0)::text s, count(*)::int n from public.orders`))[0]
+  const oldReq = await reviews(old)
+  oldReq.length === 1 && oldReq[0].status === 'pending' && oldReq[0].requested_by === ids.rani ? ok('order lama bertanda masuk antrean, sekali saja walau diulang') : bad('pengisian data lama', JSON.stringify(oldReq))
+  ;(await reviews(oldCancelled)).length === 0 ? ok('order lama yang dibatalkan tidak masuk antrean') : bad('order batal masuk antrean')
+  money.s === moneyAfter.s && money.n === moneyAfter.n ? ok('pengisian data lama tidak mengubah angka order') : bad('angka berubah', JSON.stringify([money, moneyAfter]))
+  const stale = await q(`select count(*)::int n from public.orders o where o.needs_review and o.status = 'confirmed'
+    and not exists (select 1 from public.approval_requests r where r.kind = 'order_review' and r.target_id = o.id and r.status = 'pending')`)
+  stale[0].n === 0 ? ok('setiap order bertanda punya tepat satu pengajuan menunggu') : bad('order bertanda tanpa pengajuan', JSON.stringify(stale))
+}
+
 console.log(failed ? `\n${failed} pemeriksaan gagal` : '\nSemua pemeriksaan lulus')
 process.exit(failed ? 1 : 0)

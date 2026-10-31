@@ -14,24 +14,38 @@ export const dynamic = 'force-dynamic'
 export default async function NewOrderPage() {
   const viewer = await getViewer()
   if (!viewer) redirect('/login')
-  const { supabase, userId } = viewer
-  const [{ data: brands }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }, { data: orders }, { data: pending }] = await Promise.all([
+  const { supabase, userId, isOwner } = viewer
+  const orderQ = supabase
+    .from('orders')
+    .select('id, code, admin_id, account_id, customer_name, sell_price, net_profit, status, needs_review, review_status, created_at, vouchers(code)')
+  const [{ data: brands }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }, { data: orders }, { data: pending }, { data: rejected }, { data: names }] = await Promise.all([
     supabase.from('brands').select('id, name').order('name'),
     // View tersamar: staf tidak melihat nomor akun lengkap / device VM.
     supabase.from('account_list').select('id, brand_id, account_code, source, active_until, inventory, account_number').order('account_code'),
     supabase.from('vouchers').select('id, code, account_id, voucher_type_id, grp, allocated_cost').eq('status', 'available'),
     supabase.from('voucher_types').select('id, brand_id, code, name, grp, sort_order').eq('is_active', true),
     supabase.from('voucher_type_versions').select('id, voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
-    // RLS: staf hanya melihat order yang ia catat sendiri; owner melihat semua.
-    supabase
-      .from('orders')
-      .select('id, code, account_id, customer_name, sell_price, net_profit, status, needs_review, review_reasons, created_at, vouchers(code)')
-      .eq('admin_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(15),
+    // RLS: staf hanya melihat order yang ia catat sendiri; owner melihat order semua admin.
+    (isOwner ? orderQ : orderQ.eq('admin_id', userId)).order('created_at', { ascending: false }).limit(isOwner ? 30 : 15),
     supabase.from('approval_requests').select('target_id').eq('kind', 'order_cancel').eq('status', 'pending'),
+    // RLS: staf membaca keputusan atas order yang ia catat sendiri.
+    supabase.from('approval_requests').select('target_id, decision_note').eq('kind', 'order_review').eq('status', 'rejected'),
+    supabase.from('profiles').select('id, full_name'),
   ])
   const pendingCancel = new Set((pending ?? []).map((p) => p.target_id))
+  const adminName = (id: string) => names?.find((n) => n.id === id)?.full_name ?? '—'
+  const reviewPills = (o: { id: string; status: string; needs_review: boolean; review_status: string | null }) => {
+    if (o.status === 'cancelled') return null
+    const note = rejected?.find((r) => r.target_id === o.id)?.decision_note
+    return (
+      <>
+        {o.needs_review && <Pill tone="warning">{o.status === 'draft' ? 'Ditinjau setelah konfirmasi' : 'Perlu tinjau owner'}</Pill>}
+        {o.review_status === 'approved' && <Pill tone="success">Disetujui owner</Pill>}
+        {o.review_status === 'rejected' && <Pill tone="danger">Ditolak owner</Pill>}
+        {o.review_status === 'rejected' && note && <span className="text-xs text-ink-500">Alasan: {note}</span>}
+      </>
+    )
+  }
   // Akun Baperan yang masa aktifnya lewat tidak ditawarkan (database juga menolaknya).
   const today = jktDate()
   const expiredIds = new Set((accounts ?? []).filter((a) => a.inventory === 'baperan' && baperanStatus(a.active_until, today) === 'kedaluwarsa').map((a) => a.id))
@@ -80,7 +94,7 @@ export default async function NewOrderPage() {
       <PageHeader eyebrow="Transaksi Order" title="Catat order baru" />
       <OrderForm brands={brands ?? []} accounts={accountsWithLots} vouchers={vouchersWithLots} types={types ?? []} versions={versions ?? []} />
 
-      <Card title="Order terakhir saya">
+      <Card title={isOwner ? 'Order terakhir semua admin' : 'Order terakhir saya'}>
         {/* HP: kartu per order; layar lebar: tabel. Aksi sama untuk keduanya. */}
         <ul className="flex flex-col divide-y divide-[#f1eadc] md:hidden">
           {list.map(({ o, v, st }) => (
@@ -88,7 +102,7 @@ export default async function NewOrderPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col">
                   <span className="font-mono text-[13px] font-semibold">{o.code}</span>
-                  <span className="text-xs text-ink-500">{jktDateTime(o.created_at)} · {o.customer_name}</span>
+                  <span className="text-xs text-ink-500">{jktDateTime(o.created_at)} · {o.customer_name}{isOwner && ` · ${adminName(o.admin_id)}`}</span>
                 </div>
                 <span className="text-right">
                   <span className="block font-semibold">{rupiah(o.net_profit)}</span>
@@ -97,7 +111,7 @@ export default async function NewOrderPage() {
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Pill tone={st.tone}>{st.label}</Pill>
-                {o.needs_review && <Pill tone="warning">Perlu tinjau owner</Pill>}
+                {reviewPills(o)}
                 {pendingCancel.has(o.id) && <Pill tone="warning">Batal diajukan</Pill>}
                 {o.account_id ? (
                   <Link href={`/accounts/${o.account_id}`} className="ml-auto inline-flex min-h-8 items-center font-mono text-xs text-orange-700">{v?.code}</Link>
@@ -116,7 +130,10 @@ export default async function NewOrderPage() {
               <tr key={o.id}>
                 <td className="whitespace-nowrap">{jktDateTime(o.created_at)}</td>
                 <td className="whitespace-nowrap font-mono text-[13px] font-semibold">{o.code}</td>
-                <td>{o.customer_name}</td>
+                <td>
+                  {o.customer_name}
+                  {isOwner && <span className="block text-xs text-ink-500">{adminName(o.admin_id)}</span>}
+                </td>
                 <td>
                   {o.account_id ? (
                     <Link href={`/accounts/${o.account_id}`} className="font-mono text-[13px] text-orange-700">{v?.code}</Link>
@@ -129,7 +146,7 @@ export default async function NewOrderPage() {
                 <td>
                   <div className="flex flex-col items-start gap-1">
                     <Pill tone={st.tone}>{st.label}</Pill>
-                    {o.needs_review && <Pill tone="warning">Perlu tinjau owner</Pill>}
+                    {reviewPills(o)}
                     {pendingCancel.has(o.id) && <Pill tone="warning">Batal diajukan</Pill>}
                   </div>
                 </td>

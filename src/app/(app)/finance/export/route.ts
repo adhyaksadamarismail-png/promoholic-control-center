@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const [s, e] = periodRange(p, d)
   const [{ data: orders }, { data: profiles }] = await Promise.all([
     supabase.from('orders')
-      .select('code, confirmed_at, admin_id, customer_name, menu_price, discount, manual_discount, price_after_discount, sell_price, allocated_cost, hpp, gross_profit, extra_cost, net_profit, needs_review, review_reasons, vouchers(code)')
+      .select('code, confirmed_at, admin_id, customer_name, menu_price, discount, manual_discount, price_after_discount, sell_price, allocated_cost, hpp, gross_profit, extra_cost, net_profit, needs_review, review_status, review_reasons, vouchers(code)')
       .eq('status', 'confirmed').gte('confirmed_at', `${s}T00:00:00+07:00`).lt('confirmed_at', `${addDays(e, 1)}T00:00:00+07:00`)
       .order('confirmed_at'),
     supabase.from('profiles').select('id, full_name'),
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     const v = (Array.isArray(o.vouchers) ? o.vouchers[0] : o.vouchers) as { code: string } | null
     return [o.code, jktDateTime(o.confirmed_at), profiles?.find((x) => x.id === o.admin_id)?.full_name, o.customer_name, v?.code, o.menu_price, o.discount,
       o.manual_discount ? 'ya' : '', o.price_after_discount, o.sell_price, o.allocated_cost, o.hpp, o.gross_profit, o.extra_cost, o.net_profit,
-      o.needs_review ? (o.review_reasons as string[]).join('; ') : '']
+      o.needs_review ? (o.review_reasons as string[]).join('; ') : o.review_status === 'rejected' ? 'Ditolak owner' : '']
   })
   const csv = '﻿' + [head, ...lines].map((l) => l.map(esc).join(',')).join('\r\n')
   return new NextResponse(csv, {

@@ -80,7 +80,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         <Stat label="HPP" value={rupiah(c.merchant + c.voucherCost)} sub="merchant + modal voucher" />
         <Stat label="Laba kotor" value={rupiah(c.gross)} sub={c.revenue ? `margin ${Math.round((c.gross / c.revenue) * 100)}%` : '—'} />
         <Stat label="Laba bersih" value={rupiah(c.net)} sub="setelah biaya, uang saku & bonus" />
-        <Stat label="Perlu ditinjau" value={c.review} sub={c.review ? 'order dengan potongan manual / selisih' : 'tidak ada'} />
+        <Stat label="Perlu ditinjau" value={c.review} sub={c.review ? <Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link> : 'tidak ada'} />
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
