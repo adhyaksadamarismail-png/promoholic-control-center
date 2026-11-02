@@ -58,6 +58,7 @@ main summary {
 }
 @keyframes pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes row-leave { to { opacity: 0; transform: translateX(16px); } }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
 @layer base {
@@ -77,6 +78,7 @@ main summary {
 @layer components {
   .animate-enter { animation: enter 200ms var(--ease-out-soft) both; }
   .animate-pop { display: inline-block; animation: pop 260ms var(--ease-out-soft); }
+  .animate-row-leave { animation: row-leave 150ms ease-in both; }
   .animate-fade-in { animation: fade-in 150ms ease-out both; }
   .animate-fade-out { animation: fade-out 140ms ease-in both; }
   .animate-menu-in { animation: pop-in 160ms var(--ease-out-soft) both; transform-origin: top right; }

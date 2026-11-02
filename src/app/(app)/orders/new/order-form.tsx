@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useMemo, useState } from 'react'
-import { currentVersion, previewDiscount, ruleLabel, stockLevel, type Rule } from '@/lib/inventory'
+import { currentVersion, orderEstimate, ruleLabel, stockLevel, type Rule } from '@/lib/inventory'
 import { createOrder } from './actions'
 import { baperanIdentity, baperanStatus } from '@/lib/baperan'
 
@@ -95,13 +95,8 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
     : undefined
   const voucher = accVouchers.find((v) => v.id === voucherId) ?? null
   const rule = voucher ? ruleFor(voucher) : null
-  const pv = previewDiscount(menu ?? 0, rule, manual)
-  const after = override ?? (pv.discount !== null && menu ? menu - pv.discount : null)
-  const costUnknown = !!voucher && voucher.allocated_cost === null
-  const cost = voucher ? Number(voucher.allocated_cost ?? 0) : 0
-  const hpp = after !== null ? after + cost : null
-  const gross = hpp !== null && sell !== null ? sell - hpp : null
-  const net = gross !== null ? gross - (extra ?? 0) : null
+  const pv = orderEstimate({ menu, sell, extra, manual, override, rule, cost: voucher ? voucher.allocated_cost : 0 })
+  const { after, cost, costUnknown, hpp, gross, net } = pv
   const reasons = [...pv.reasons, ...(costUnknown ? ['Modal voucher belum diisi'] : []), ...(override !== null && pv.discount !== null && menu && override !== menu - pv.discount ? ['Harga merchant berbeda dari hitungan voucher'] : [])]
   const shown = state === ack ? null : state
   const done = shown?.ok ? (shown.data as string) : null

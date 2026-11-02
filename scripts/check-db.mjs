@@ -532,6 +532,42 @@ left[0].acc === 0 && left[0].v === 0 && left[0].trx > 0 ? ok('akun & voucher ter
 await expectFail('riwayat stok selain milik akun yang dihapus tetap append-only', () =>
   q(`delete from public.stock_ledger where id = (select id from public.stock_ledger where reason = 'restock' limit 1)`), 'append-only')
 
+console.log('\nBulk Transaksi: rumus identik dengan transaksi satuan')
+{
+  // Rumus pratinjau yang dipakai form satuan & bulk, dijalankan langsung dari sumbernya lalu dibandingkan dengan record_order.
+  const { orderEstimate } = await import(new URL('../src/lib/inventory.ts', import.meta.url))
+  await as('owner', () => q(`select public.panel_add_account('KK','770001',null,null,'{}',gen_random_uuid()), public.panel_add_account('KK','770002',null,null,'{}',gen_random_uuid()), public.panel_add_account('KK','770003',null,null,'{}',gen_random_uuid())`))
+  await db.exec('reset role')
+  const cases = [
+    { v: 'V-KK770001-A', menu: 58000, sell: 39000, extra: 0, label: 'A 50% di bawah batas' },
+    { v: 'V-KK770002-A', menu: 100000, sell: 70000, extra: 2500, label: 'A 50% kena batas maks.' },
+    { v: 'V-KK770001-B', menu: 50000, sell: 30000, extra: 0, label: 'B tepat di minimum' },
+    { v: 'V-KK770001-C', menu: 90000, sell: 65000, extra: 1000, override: 47000, label: 'C harga merchant dikoreksi' },
+  ]
+  let same = 0
+  for (const c of cases) {
+    const v = (await q(`select v.id, v.allocated_cost, v.voucher_type_id from public.vouchers v where v.code = $1`, [c.v]))[0]
+    const rule = (await q(`select r.discount_pct, r.fixed_discount, r.min_purchase, r.max_discount from public.current_voucher_version($1) r`, [v.voucher_type_id]))[0]
+    const est = orderEstimate({ menu: c.menu, sell: c.sell, extra: c.extra, manual: null, override: c.override ?? null, rule: { ...rule, discount_pct: rule.discount_pct === null ? null : Number(rule.discount_pct) }, cost: v.allocated_cost })
+    const code = await as('rani', async () => (await q(`select public.record_order($1,'Bulk','081234567890',null,$2,$3,$4,null,$5,true,gen_random_uuid()) c`, [v.id, c.menu, c.sell, c.extra, c.override ?? null]))[0].c)
+    await db.exec('reset role')
+    const o = (await q(`select discount, price_after_discount, allocated_cost, hpp, gross_profit, net_profit from public.orders where code = $1`, [code]))[0]
+    const match = (c.override || est.discount === o.discount) && est.after === o.price_after_discount && Number(est.hpp).toFixed(2) === Number(o.hpp).toFixed(2)
+      && Number(est.gross).toFixed(2) === Number(o.gross_profit).toFixed(2) && Number(est.net).toFixed(2) === Number(o.net_profit).toFixed(2)
+    if (match) { same++; ok(`${c.label}: pratinjau = tersimpan (laba bersih ${Number(o.net_profit)})`) } else bad(c.label, JSON.stringify({ est, o }))
+  }
+  same === cases.length || bad('rumus bulk berbeda dari record_order')
+  const v3 = (await q(`select id from public.vouchers where code = 'V-KK770003-A'`))[0].id
+  const key = (await q('select gen_random_uuid() k'))[0].k
+  const save = () => as('rani', async () => (await q(`select public.record_order($1,'Bulk','081234567890',null,60000,40000,0,null,null,true,$2) c`, [v3, key]))[0].c)
+  const [c1, c2] = [await save(), await save()]
+  await db.exec('reset role')
+  const n = (await q(`select count(*)::int n from public.orders where idempotency_key = $1`, [key]))[0].n
+  c1 === c2 && n === 1 ? ok('baris yang dikirim dua kali tetap satu transaksi: ' + c1) : bad('kiriman ganda bulk', JSON.stringify({ c1, c2, n }))
+  await expectFail('voucher yang dipakai baris lain ditolak saat disimpan', () => as('rani', () =>
+    q(`select public.record_order($1,'Bulk','081234567890',null,60000,40000,0,null,null,true,gen_random_uuid())`, [v3])), 'tidak tersedia')
+}
+
 console.log('\nOrder & voucher')
 const vid = async (code) => (await q(`select id from public.vouchers where code = $1`, [code]))[0].id
 await expectFail('voucher yang sudah terpakai tidak bisa dipakai lagi', () => as('rani', async () =>

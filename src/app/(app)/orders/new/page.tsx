@@ -2,16 +2,18 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
-import { Card, PageHeader, Pill, Table, inputCls } from '@/components/ui'
+import { Card, PageHeader, Pill, Table, Tabs, inputCls } from '@/components/ui'
 import { jktDate, jktDateTime, rupiah } from '@/lib/format'
 import { baperanStatus } from '@/lib/baperan'
 import { ORDER_STATUS } from '@/lib/inventory'
 import { cancelDraft, confirmDraft, requestCancel } from './actions'
 import { OrderForm } from './order-form'
+import { BulkOrder } from './bulk-order'
 
 export const dynamic = 'force-dynamic'
 
-export default async function NewOrderPage() {
+export default async function NewOrderPage({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
+  const mode = (await searchParams).mode === 'bulk' ? 'bulk' : 'satuan'
   const viewer = await getViewer()
   if (!viewer) redirect('/login')
   const { supabase, userId, isOwner } = viewer
@@ -92,7 +94,18 @@ export default async function NewOrderPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
       <PageHeader eyebrow="Transaksi Order" title="Catat order baru" />
-      <OrderForm brands={brands ?? []} accounts={accountsWithLots} vouchers={vouchersWithLots} types={types ?? []} versions={versions ?? []} />
+      <Tabs
+        items={[
+          { key: 'satuan', label: 'Transaksi Satuan', href: '/orders/new' },
+          { key: 'bulk', label: 'Bulk Transaksi', href: '/orders/new?mode=bulk' },
+        ]}
+        active={mode}
+      />
+      {mode === 'bulk' ? (
+        <BulkOrder brands={brands ?? []} accounts={(accounts ?? []).filter((a) => !expiredIds.has(a.id))} types={types ?? []} />
+      ) : (
+        <OrderForm brands={brands ?? []} accounts={accountsWithLots} vouchers={vouchersWithLots} types={types ?? []} versions={versions ?? []} />
+      )}
 
       <Card title={isOwner ? 'Order terakhir semua admin' : 'Order terakhir saya'}>
         {/* HP: kartu per order; layar lebar: tabel. Aksi sama untuk keduanya. */}

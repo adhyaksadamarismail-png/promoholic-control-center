@@ -72,6 +72,20 @@ export function previewDiscount(menuPrice: number, r: Rule | null | undefined, m
 }
 
 /** Ambil versi aturan yang berlaku (effective_from terbaru yang sudah lewat). */
+/**
+ * Perkiraan satu order: dipakai form satuan dan Bulk Transaksi agar rumusnya satu. Sama dengan record_order;
+ * server tetap menghitung ulang dan nilai server yang disimpan. `cost` null = modal voucher belum diisi (dihitung Rp0).
+ */
+export function orderEstimate(o: { menu: number | null; sell: number | null; extra: number | null; manual: number | null; override: number | null; rule: Rule | null | undefined; cost: number | string | null }) {
+  const pv = previewDiscount(o.menu ?? 0, o.rule, o.manual)
+  const after = o.override ?? (pv.discount !== null && o.menu ? o.menu - pv.discount : null)
+  const cost = Number(o.cost ?? 0)
+  const hpp = after !== null ? after + cost : null
+  const gross = hpp !== null && o.sell !== null ? o.sell - hpp : null
+  const net = gross !== null ? gross - (o.extra ?? 0) : null
+  return { ...pv, after, cost, costUnknown: o.cost === null, hpp, gross, net }
+}
+
 export function currentVersion<T extends { voucher_type_id: string; effective_from: string }>(versions: T[], typeId: string, at = Date.now()) {
   return versions
     .filter((v) => v.voucher_type_id === typeId && Date.parse(v.effective_from) <= at)
