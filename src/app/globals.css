@@ -104,6 +104,11 @@ main summary {
   .confirm-dialog[open]::backdrop { background: rgb(21 35 66 / 0.45); animation: fade-in 170ms ease-out; }
   .confirm-dialog.closing { animation: pop-out 140ms ease-in both; }
   .confirm-dialog.closing::backdrop { animation: fade-out 140ms ease-in both; }
+  /* Daftar Akun: baris terpilih disorot halus; baris yang diarsipkan/dipulihkan meluncur keluar. */
+  .account-list tr, .account-list li > a { transition: background-color 160ms ease, border-color 160ms ease; }
+  .account-list tr:has(input[data-row-check]:checked) { background: var(--color-orange-100); }
+  .account-list li:has(input[data-row-check]:checked) > a { border-color: var(--color-orange-500); background: var(--color-orange-100); }
+  .account-list tr:has(input[data-row-check='leaving']), .account-list li:has(input[data-row-check='leaving']) { animation: row-leave 220ms ease-in both; }
   /* Gulir internal sidebar: tipis dan menyatu dengan warna navy. */
   .sidebar-scroll { scrollbar-width: thin; scrollbar-color: var(--color-navy-700) transparent; }
 }

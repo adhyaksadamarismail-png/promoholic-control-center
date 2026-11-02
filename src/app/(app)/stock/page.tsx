@@ -31,7 +31,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   const brand = /^[A-Z]{2}$/.test(sp.brand ?? '') ? sp.brand : undefined
   const weekFrom = `${weekStart(jktDate())}T00:00:00+07:00`
 
-  let accQ = supabase.from('account_list').select('id', { count: 'exact', head: true })
+  let accQ = supabase.from('account_list').select('id', { count: 'exact', head: true }).is('archived_at', null)
   if (brand) accQ = accQ.eq('brand_id', brand)
   const [{ data: brandRows }, summary, { count: weekRestocks }, { data: pendingAdj }, { count: accountCount }] = await Promise.all([
     supabase.from('brands').select('id, name').order('name'),

@@ -4,8 +4,6 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { callRpc, str, type ActionResult } from '@/lib/rpc'
-import { createSessionClient } from '@/lib/supabase/server'
-import { normalizeAccountCode } from '@/lib/inventory'
 import { createOrder, requestCancel } from '../../orders/new/actions'
 
 export async function requestStockAdjust(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
@@ -47,20 +45,25 @@ export async function requestUseCancel(prev: ActionResult | null, fd: FormData):
   return r
 }
 
-type DeleteResult = { deleted: number; skipped: number; results: { id: string; code: string | null; ok: boolean; reason?: string; vouchers?: number }[] }
+type ArchiveResult = { done: number; results: { reason?: string }[] }
 
-/** Owner: hapus satu akun setelah mengetik ID-nya. Aturan (transaksi, histori) & audit di delete_accounts. */
-export async function deleteAccount(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+/** Owner: arsipkan akun ini. Histori tidak berubah; aturan & audit di archive_accounts. */
+export async function archiveAccount(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const id = z.string().uuid().safeParse(str(fd, 'account'))
   if (!id.success) return { ok: false, message: 'Permintaan tidak valid.' }
-  const supabase = await createSessionClient()
-  // Tabel akun hanya terbaca owner (RLS); staf berhenti di sini dan tetap ditolak require_owner di database.
-  const { data: acc } = await supabase.from('accounts').select('account_code').eq('id', id.data).maybeSingle()
-  if (!acc) return { ok: false, message: 'Akses ditolak: khusus owner.' }
-  if (normalizeAccountCode(str(fd, 'confirm_code')) !== acc.account_code) return { ok: false, message: `Ketik ID akun ${acc.account_code} persis untuk konfirmasi.` }
-  const r = await callRpc('delete_accounts', { p_accounts: [id.data] }, '', ['/accounts', '/stock', '/panel', '/vm'])
+  const r = await callRpc('archive_accounts', { p_accounts: [id.data], p_note: str(fd, 'note') || null }, '', ['/accounts', '/stock', '/panel', '/vm', '/orders/new', '/'])
   if (!r.ok) return r
-  const res = r.data as DeleteResult
-  if (!res.deleted) return { ok: false, message: `Akun tidak dihapus: ${res.results[0]?.reason ?? 'ditolak'}` }
-  redirect(`/accounts?deleted=${encodeURIComponent(acc.account_code)}`)
+  const res = r.data as ArchiveResult
+  if (!res.done) return { ok: false, message: `Akun tidak diarsipkan: ${res.results[0]?.reason ?? 'ditolak'}` }
+  redirect(`/accounts?archived=${encodeURIComponent(str(fd, 'code'))}`)
+}
+
+/** Owner: pulihkan akun ini dari arsip. */
+export async function restoreAccount(_: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const id = z.string().uuid().safeParse(str(fd, 'account'))
+  if (!id.success) return { ok: false, message: 'Permintaan tidak valid.' }
+  const r = await callRpc('restore_accounts', { p_accounts: [id.data] }, '', [`/accounts/${id.data}`, '/accounts', '/stock', '/panel', '/vm', '/orders/new', '/'])
+  if (!r.ok) return r
+  const res = r.data as ArchiveResult
+  return res.done ? { ok: true, message: 'Akun dipulihkan. Voucher dan histori kembali apa adanya.' } : { ok: false, message: res.results[0]?.reason ?? 'Akun tidak dipulihkan.' }
 }

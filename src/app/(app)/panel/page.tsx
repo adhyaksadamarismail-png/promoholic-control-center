@@ -36,7 +36,7 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
       supabase.from('brands').select('id, name').order('name'),
       supabase.from('voucher_types').select('id, brand_id, code, name, grp, auto_per_account, sort_order, is_baperan').eq('is_active', true),
       supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
-      supabase.from('account_list').select('id, brand_id, account_code, source, inventory').order('account_code'),
+      supabase.from('account_list').select('id, brand_id, account_code, source, inventory, archived_at').order('account_code'),
       supabase.from('vouchers').select('account_id, voucher_type_id, slot'),
       supabase.from('brand_costs').select('brand_id, basis, credits_per_account, rp_per_voucher, effective_from').lte('effective_from', nowIso).order('effective_from', { ascending: false }),
       supabase.from('credit_prices').select('rp_per_credit').lte('effective_from', nowIso).order('effective_from', { ascending: false }).limit(1).maybeSingle(),
@@ -48,7 +48,7 @@ export default async function PanelPage({ searchParams }: { searchParams: Promis
   // Baperan punya alur & inventaris sendiri: tidak ditawarkan di form akun reguler maupun Bulk Restock.
   const baperanType = (types ?? []).find((t) => t.is_baperan)
   const regularTypes = (types ?? []).filter((t) => !t.is_baperan)
-  const regularAccounts = (accounts ?? []).filter((a) => a.source === 'panel' && a.inventory === 'regular')
+  const regularAccounts = (accounts ?? []).filter((a) => a.source === 'panel' && a.inventory === 'regular' && !a.archived_at)
   const maxSlots: Record<string, number> = {}
   ;(vouchers ?? []).forEach((v) => {
     const k = `${v.account_id}|${v.voucher_type_id}`

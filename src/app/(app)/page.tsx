@@ -228,7 +228,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       supabase.from('benefit_claims').select('id', { count: 'exact', head: true }).eq('status', 'pending').is('voided_at', null),
       supabase.from('shift_earnings').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('stock_ledger').select('id', { count: 'exact', head: true }).eq('reason', 'use').gte('at', todayStart),
-      supabase.from('accounts').select('id', { count: 'exact', head: true }).eq('needs_review', true),
+      supabase.from('accounts').select('id', { count: 'exact', head: true }).eq('needs_review', true).is('archived_at', null),
       supabase.from('approval_requests').select('id', { count: 'exact', head: true }).eq('kind', 'order_review').eq('status', 'pending'),
       supabase.from('audit_log').select('id, action, after, actor_id, at').in('action', Object.keys(AUDIT)).order('at', { ascending: false }).limit(7),
     ])

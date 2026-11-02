@@ -23,20 +23,24 @@ export type TypeSummary = {
  * Bukan sinkronisasi dari aplikasi brand: angka hanya berubah lewat restock, order, dan koreksi yang disetujui.
  */
 export async function loadTypeSummary(supabase: SupabaseClient, brand?: string) {
-  let vq = supabase.from('vouchers').select('voucher_type_id, status')
+  let vq = supabase.from('vouchers').select('voucher_type_id, status, account_id')
   let tq = supabase.from('voucher_types').select('id, brand_id, code, name, grp, sort_order').order('sort_order')
   if (brand) {
     tq = tq.eq('brand_id', brand)
     vq = vq.like('code', `V-${brand}%`)
   }
-  const [{ data: types }, { data: vouchers }, { data: versions }] = await Promise.all([
+  const [{ data: types }, { data: allVouchers }, { data: versions }, { data: archived }] = await Promise.all([
     tq,
     vq,
     supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
+    supabase.from('account_list').select('id').not('archived_at', 'is', null),
   ])
+  // Stok operasional hanya dari akun aktif; akun arsip tetap utuh dan kembali terhitung saat dipulihkan.
+  const archivedIds = new Set((archived ?? []).map((a) => a.id))
+  const vouchers = (allVouchers ?? []).filter((v) => !archivedIds.has(v.account_id))
   const vers = (versions ?? []) as (Rule & { voucher_type_id: string; effective_from: string })[]
   return (types ?? []).map((t): TypeSummary => {
-    const vs = (vouchers ?? []).filter((v) => v.voucher_type_id === t.id) as { status: VoucherStatus }[]
+    const vs = vouchers.filter((v) => v.voucher_type_id === t.id) as { status: VoucherStatus }[]
     const n = (s: VoucherStatus) => vs.filter((v) => v.status === s).length
     const r = currentVersion(vers, t.id)
     const configured = !!r && (r.fixed_discount !== null || (r.discount_pct !== null && r.max_discount !== null))

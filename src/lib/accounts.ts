@@ -17,17 +17,20 @@ export type AccountRow = {
   review_note: string | null
   inventory: 'regular' | 'baperan'
   pin: string | null // hanya terisi untuk owner (view account_list)
+  archived_at: string | null
+  archive_note: string | null // hanya terisi untuk owner
 }
 export type VoucherRow = { id: string; code: string; account_id: string; voucher_type_id: string; grp: 'main' | 'extra'; slot: number; status: VoucherStatus }
 export type TypeRow = { id: string; brand_id: string; code: string; name: string; grp: 'main' | 'extra'; sort_order: number }
 
 export type AccountFilter = { q?: string; brand?: string; source?: string; status?: string }
 
-/** Data Daftar Akun. Akun dibaca dari view account_list (nomor disamarkan untuk staf, device hanya owner). */
-export async function loadAccounts(supabase: SupabaseClient, f: AccountFilter) {
+/** Data Daftar Akun. Akun dibaca dari view account_list (nomor disamarkan untuk staf, device hanya owner). `archived`: akun di arsip. */
+export async function loadAccounts(supabase: SupabaseClient, f: AccountFilter, archived = false) {
+  const list = supabase.from('account_list').select('*')
   const [{ data: brands }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }] = await Promise.all([
     supabase.from('brands').select('id, name').order('name'),
-    supabase.from('account_list').select('*').order('entered_at', { ascending: false }),
+    (archived ? list.not('archived_at', 'is', null).order('archived_at', { ascending: false }) : list.is('archived_at', null).order('entered_at', { ascending: false })),
     supabase.from('vouchers').select('id, code, account_id, voucher_type_id, grp, slot, status'),
     supabase.from('voucher_types').select('id, brand_id, code, name, grp, sort_order').order('sort_order'),
     supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, max_discount'),
@@ -53,7 +56,7 @@ export async function loadAccounts(supabase: SupabaseClient, f: AccountFilter) {
     )
     return { ...a, vouchers: vs, state: accountState(a.needs_review, vs.map((v) => v.status)) as AccountState }
   })
-  const rows = all.filter((a) => a.inventory !== 'baperan')
+  const rows = archived ? all : all.filter((a) => a.inventory !== 'baperan')
 
   const q = f.q?.trim().toLowerCase()
   const filtered = rows.filter(
@@ -74,6 +77,7 @@ export async function loadBaperan(supabase: SupabaseClient, f: BaperanFilter) {
     .from('account_list')
     .select('id, account_code, account_number, pin, entered_at, active_until')
     .eq('inventory', 'baperan')
+    .is('archived_at', null)
     .order('active_until', { ascending: true })
   const ids = (accounts ?? []).map((a) => a.id)
   const [{ data: vouchers }, { data: restocks }] = await Promise.all([

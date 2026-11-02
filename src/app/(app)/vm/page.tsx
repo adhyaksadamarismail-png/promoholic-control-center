@@ -80,7 +80,7 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
 
   const [{ data: devices }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }] = await Promise.all([
     supabase.from('vm_devices').select('id, name, note, is_active').order('id'),
-    supabase.from('accounts').select('id, brand_id, account_code, vm_device_id, account_number, entered_at, active_until').eq('source', 'vm').order('account_code'),
+    supabase.from('accounts').select('id, brand_id, account_code, vm_device_id, account_number, entered_at, active_until').eq('source', 'vm').is('archived_at', null).order('account_code'),
     supabase.from('vouchers').select('id, account_id, voucher_type_id, grp, slot, status, code'),
     supabase.from('voucher_types').select('id, brand_id, code, name, grp, auto_per_account, sort_order').eq('brand_id', 'KK').order('sort_order'),
     supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),

@@ -507,29 +507,57 @@ await as('owner', async () => {
   await expectOk('owner mengembalikan FR D25 ke diisi manual', () => q(`select public.set_voucher_type_auto($1, null)`, [fr]))
 })
 
-console.log('\nHapus akun')
+console.log('\nArsip akun')
 const accId = async (code) => (await q(`select id from public.accounts where account_code = $1`, [code]))[0]?.id
 await as('owner', () => q(`select public.panel_add_account('KK','880001',null,null,'{}',gen_random_uuid()), public.panel_add_account('KK','880002',null,null,'{}',gen_random_uuid())`))
 await db.exec('reset role')
 const [safe1, safe2, withTrx] = [await accId('880001'), await accId('880002'), await accId('KK-0192')]
-await expectFail('staf tidak bisa menghapus akun', () => as('rani', () => q(`select public.delete_accounts(array[$1]::uuid[])`, [safe1])), 'khusus owner')
+// Sidik jari seluruh angka & relasi historis akun bertransaksi: harus identik sebelum, selama, dan sesudah arsip.
+const fingerprint = async () => JSON.stringify(await q(`select
+  (select jsonb_agg(to_jsonb(o) order by o.id) from public.orders o) orders,
+  (select jsonb_agg(to_jsonb(u) order by u.id) from public.voucher_usages u) usages,
+  (select jsonb_agg(to_jsonb(v) order by v.id) from public.vouchers v where v.account_id = $1) vouchers,
+  (select count(*)::int from public.stock_ledger) ledger, (select count(*)::int from public.restocks) restocks`, [withTrx]))
+const before = await fingerprint()
+await expectFail('staf tidak bisa mengarsipkan akun', () => as('rani', () => q(`select public.archive_accounts(array[$1]::uuid[])`, [safe1])), 'khusus owner')
+await expectFail('staf tidak bisa memulihkan akun', () => as('rani', () => q(`select public.restore_accounts(array[$1]::uuid[])`, [safe1])), 'khusus owner')
+await expectFail('hapus permanen tidak bisa dipanggil lagi, juga oleh owner', () => as('owner', () => q(`select public.delete_accounts(array[$1]::uuid[])`, [safe1])), 'permission denied')
 await as('owner', async () => {
-  const r = (await q(`select public.delete_accounts(array[$1]::uuid[]) r`, [withTrx]))[0].r
-  r.deleted === 0 && r.results[0].reason.includes('transaksi') ? ok('akun dengan transaksi ditolak: ' + r.results[0].reason) : bad('hapus akun bertransaksi', JSON.stringify(r))
-  const one = (await q(`select public.delete_accounts(array[$1]::uuid[]) r`, [safe1]))[0].r
-  one.deleted === 1 && one.results[0].vouchers === 3 ? ok('akun aman dihapus beserta 3 vouchernya') : bad('hapus satu akun', JSON.stringify(one))
-  const bulk = (await q(`select public.delete_accounts(array[$1, $2, gen_random_uuid()]::uuid[]) r`, [safe2, withTrx]))[0].r
-  bulk.deleted === 1 && bulk.skipped === 2 && bulk.results.filter((x) => !x.ok).every((x) => x.reason)
-    ? ok('bulk: 1 dihapus, 2 dilewati dengan alasan') : bad('bulk delete', JSON.stringify(bulk))
-  const a = await q(`select action, after from public.audit_log where action in ('account.delete','account.bulk_delete') order by id`)
-  a.length === 3 && a[2].action === 'account.bulk_delete' && a[2].after.deleted_count === 1 && a[2].after.skipped_count === 2
-    ? ok('satu entri audit per operasi (ringkasan jumlah dihapus & dilewati)') : bad('audit hapus', JSON.stringify(a.map((x) => x.action)))
+  const r = (await q(`select public.archive_accounts(array[$1]::uuid[], 'salah input') r`, [withTrx]))[0].r
+  r.done === 1 ? ok('akun bertransaksi boleh diarsipkan') : bad('arsip akun bertransaksi', JSON.stringify(r))
+  const bulk = (await q(`select public.archive_accounts(array[$1, $2, gen_random_uuid()]::uuid[]) r`, [safe1, withTrx]))[0].r
+  bulk.done === 1 && bulk.skipped === 2 && bulk.results.filter((x) => !x.ok).every((x) => x.reason)
+    ? ok('bulk: 1 diarsipkan, 2 dilewati dengan alasan') : bad('bulk arsip', JSON.stringify(bulk))
+  const a = await q(`select action, after from public.audit_log where action = 'account.archive' order by id`)
+  a.length === 2 && a[1].after.done_count === 1 && a[1].after.skipped_count === 2 ? ok('satu entri audit per operasi') : bad('audit arsip', JSON.stringify(a))
 })
 await db.exec('reset role')
-const left = await q(`select (select count(*)::int from public.accounts where account_code in ('880001','880002')) acc,
-  (select count(*)::int from public.vouchers where code like 'V-KK88000%') v, (select count(*)::int from public.orders where account_id = $1) trx`, [withTrx])
-left[0].acc === 0 && left[0].v === 0 && left[0].trx > 0 ? ok('akun & voucher terhapus; order akun bertransaksi tetap utuh') : bad('sisa data', JSON.stringify(left[0]))
-await expectFail('riwayat stok selain milik akun yang dihapus tetap append-only', () =>
+const during = await fingerprint()
+during === before ? ok('selama diarsipkan: order, pemakaian, voucher, stok & restock identik') : bad('data historis berubah saat arsip')
+const hist = await as('rani', () => q(`select account_code, archived_at is not null archived from public.account_list where id = $1`, [withTrx]))
+hist[0]?.archived ? ok('akun arsip tetap bisa dibaca untuk riwayat') : bad('riwayat akun arsip', JSON.stringify(hist))
+await expectFail('voucher akun arsip tidak bisa dipakai untuk order baru', () => as('rani', async () =>
+  q(`select public.record_order($1,'X','081234567890',null,90000,60000,0,null,null,true,gen_random_uuid())`, [(await q(`select id from public.vouchers where code = 'V-KK0192-C'`))[0].id])), 'diarsipkan')
+await expectFail('akun arsip tidak bisa ditambah voucher', () => as('owner', () => q(`select public.add_stock($1, '[{"type":"BP","qty":1}]', gen_random_uuid())`, [safe1])), 'diarsipkan')
+await expectFail('ID akun arsip tidak bisa dibuat ulang; diarahkan ke pemulihan', () => as('rani', () =>
+  q(`select public.panel_add_account('KK','880001',null,null,'{}',gen_random_uuid())`)), 'arsip')
+await as('owner', async () => {
+  const r = (await q(`select public.restore_accounts(array[$1, $2, $3]::uuid[]) r`, [withTrx, safe1, safe2]))[0].r
+  r.done === 2 && r.skipped === 1 && r.results.find((x) => !x.ok).reason.includes('arsip') ? ok('pulihkan banyak akun; akun yang tidak diarsipkan dilewati') : bad('pulihkan', JSON.stringify(r))
+})
+await db.exec('reset role')
+const after = await fingerprint()
+after === before ? ok('setelah dipulihkan: semua angka & relasi tetap identik, tidak ada transaksi baru') : bad('data berubah setelah pulihkan')
+await as('rani', async () => {
+  const v = (await q(`select id from public.vouchers where code = 'V-KK880002-A'`))[0].id
+  await q(`select public.record_order($1,'Draft','081234567890',null,50000,40000,0,null,null,false,gen_random_uuid())`, [v])
+})
+await as('owner', async () => {
+  const r = (await q(`select public.archive_accounts(array[$1]::uuid[]) r`, [safe2]))[0].r
+  r.done === 0 && r.results[0].reason.includes('draft') ? ok('akun dengan draft order berjalan tidak diarsipkan: ' + r.results[0].reason) : bad('arsip draft', JSON.stringify(r))
+})
+await db.exec('reset role')
+await expectFail('riwayat stok tetap append-only', () =>
   q(`delete from public.stock_ledger where id = (select id from public.stock_ledger where reason = 'restock' limit 1)`), 'append-only')
 
 console.log('\nBulk Transaksi: rumus identik dengan transaksi satuan')
