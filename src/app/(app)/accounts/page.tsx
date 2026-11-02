@@ -5,7 +5,8 @@ import { Note, PageHeader, Pill, Table, Tabs, inputCls } from '@/components/ui'
 import { dateLabel, jktDate } from '@/lib/format'
 import { ACCOUNT_STATE, VOUCHER_STATUS } from '@/lib/inventory'
 import { loadAccounts, type AccountFilter } from '@/lib/accounts'
-import { BulkDeleteProvider, RowCheck } from './bulk-delete'
+import { BulkAccountProvider, RowCheck } from './bulk-archive'
+import { AccountSearch } from './account-search'
 import { BaperanList } from './baperan-list'
 
 export const dynamic = 'force-dynamic'
@@ -18,8 +19,8 @@ const CHIP: Record<string, string> = {
   broken: 'bg-danger-100 text-danger-700 border-danger-700/30',
 }
 
-export default async function AccountsPage({ searchParams }: { searchParams: Promise<AccountFilter & { deleted?: string; view?: string; bstatus?: string }> }) {
-  const { deleted, view, bstatus, ...f } = await searchParams
+export default async function AccountsPage({ searchParams }: { searchParams: Promise<AccountFilter & { archived?: string; view?: string; bstatus?: string }> }) {
+  const { archived, view, bstatus, ...f } = await searchParams
   const viewer = await getViewer()
   if (!viewer) redirect('/login')
   const { supabase } = viewer
@@ -29,8 +30,9 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
       items={[
         { key: 'regular', label: 'Akun reguler', href: '/accounts' },
         { key: 'baperan', label: 'Inventaris Baperan', href: '/accounts?view=baperan' },
+        ...(role === 'owner' ? [{ key: 'arsip', label: 'Diarsipkan', href: '/accounts?view=arsip' }] : []),
       ]}
-      active={view === 'baperan' ? 'baperan' : 'regular'}
+      active={view === 'baperan' || (view === 'arsip' && role === 'owner') ? view : 'regular'}
     />
   )
   if (view === 'baperan')
@@ -45,25 +47,31 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
         <BaperanList supabase={supabase} isOwner={role === 'owner'} f={{ q: f.q, bstatus: ['aktif', 'segera', 'kedaluwarsa'].includes(bstatus ?? '') ? bstatus : undefined }} />
       </div>
     )
-  const { brands, types, rows, filtered, incomplete } = await loadAccounts(supabase, f)
+  const inArchive = view === 'arsip' && role === 'owner'
+  const { brands, types, rows, filtered, incomplete } = await loadAccounts(supabase, f, inArchive)
   const typeCode = (id: string) => types.find((t) => t.id === id)?.code ?? '?'
   const isOwner = role === 'owner'
-  // Owner: daftar dibungkus pilihan hapus massal (checkbox per baris). Staf: daftar biasa.
+  // Owner: daftar dibungkus pilihan arsip/pulihkan massal (checkbox per baris). Staf: daftar biasa.
   const Selectable = ({ children }: { children: React.ReactNode }) =>
-    isOwner ? <BulkDeleteProvider rows={filtered.map((r) => ({ id: r.id, code: r.account_code }))}>{children}</BulkDeleteProvider> : <>{children}</>
+    isOwner ? <BulkAccountProvider key={inArchive ? 'restore' : 'archive'} mode={inArchive ? 'restore' : 'archive'} rows={filtered.map((r) => ({ id: r.id, code: r.account_code }))}>{children}</BulkAccountProvider> : <>{children}</>
+  // Kunci berganti saat filter berubah agar daftar masuk dengan transisi halus.
+  const listKey = JSON.stringify([view, f.q, f.brand, f.source, f.status])
+  const emptyText = !rows.length && inArchive ? 'Belum ada akun diarsipkan.' : f.q ? `Tidak ada akun dengan ID "${f.q}".` : 'Tidak ada akun yang cocok dengan filter ini.'
   const exportQs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString()
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
-      <PageHeader eyebrow={role === 'owner' ? 'Akses penuh · VM & Panel Admin' : 'Nomor akun disamarkan untuk staf'} title="Daftar Akun">
-        <a href={`/accounts/export${exportQs ? '?' + exportQs : ''}`} className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">
-          Export CSV
-        </a>
+      <PageHeader eyebrow={inArchive ? 'Khusus owner · akun nonaktif, histori tetap utuh' : role === 'owner' ? 'Akses penuh · VM & Panel Admin' : 'Nomor akun disamarkan untuk staf'} title="Daftar Akun">
+        {!inArchive && (
+          <a href={`/accounts/export${exportQs ? '?' + exportQs : ''}`} className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">
+            Export CSV
+          </a>
+        )}
       </PageHeader>
       {tabs}
-      {deleted && <Note>Akun {deleted} dihapus beserta vouchernya. Tindakan tercatat di audit log.</Note>}
+      {archived && <Note>Akun {archived} diarsipkan. Transaksi dan voucher tidak berubah; pulihkan kapan saja dari tab Diarsipkan.</Note>}
 
-      <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-5 md:overflow-visible md:px-0 md:pb-0">
+      {!inArchive && <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-5 md:overflow-visible md:px-0 md:pb-0">
         {brands.map((b) => {
           const vs = rows.filter((r) => r.brand_id === b.id).flatMap((r) => r.vouchers)
           const main = vs.filter((v) => v.grp === 'main' && v.status === 'available').length
@@ -81,12 +89,13 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             </Link>
           )
         })}
-      </div>
+      </div>}
 
       <form className="flex flex-wrap items-end gap-2 rounded-2xl border border-cream-300 bg-white p-4" role="search">
-        <label className="flex min-w-48 flex-1 flex-col gap-1.5 text-sm font-semibold">
-          Cari akun
-          <input name="q" defaultValue={f.q} placeholder="ID akun, nomor, atau ID voucher" className={inputCls} />
+        {inArchive && <input type="hidden" name="view" value="arsip" />}
+        <label className="flex w-full flex-col gap-1.5 text-sm font-semibold">
+          Cari ID akun
+          <AccountSearch />
         </label>
         <label className="flex min-w-[100px] flex-1 flex-col gap-1.5 text-sm font-semibold sm:flex-none">
           Brand
@@ -111,7 +120,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           </select>
         </label>
         <button className="min-h-11 rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white">Terapkan</button>
-        <Link href="/accounts" className="flex min-h-11 items-center px-2 text-sm font-semibold text-orange-700">Hapus filter</Link>
+        <Link href={inArchive ? '/accounts?view=arsip' : '/accounts'} className="flex min-h-11 items-center px-2 text-sm font-semibold text-orange-700">Hapus filter</Link>
       </form>
 
       <div className="flex flex-wrap gap-3 text-xs text-ink-500">
@@ -124,7 +133,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
 
       <Selectable>
       {/* HP: daftar kartu agar ID akun, voucher, dan status terlihat tanpa menggeser tabel. */}
-      <ul className="flex flex-col gap-2 md:hidden">
+      <ul key={`m-${listKey}`} className="account-list animate-enter flex flex-col gap-2 md:hidden">
         {filtered.map((r) => {
           const main = r.vouchers.filter((v) => v.grp === 'main')
           const extra = r.vouchers.filter((v) => v.grp === 'extra')
@@ -142,6 +151,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
                   {brands.find((b) => b.id === r.brand_id)?.name} · {r.source === 'vm' ? `VM${r.vm_device_id ? ' ' + r.vm_device_id : ''}` : 'Panel'}
                   {r.account_number && <span className="font-mono"> · {r.account_number}</span>}
                 </span>
+                {inArchive && r.archived_at && <span className="text-xs text-ink-500">Diarsipkan {dateLabel(jktDate(r.archived_at))}{r.archive_note ? ` · ${r.archive_note}` : ''}</span>}
                 <span className="flex flex-wrap items-center gap-1">
                   {main.map((v) => (
                     <span key={v.id} className={`rounded border px-1.5 text-xs font-bold ${CHIP[v.status]}`}>{typeCode(v.voucher_type_id)}</span>
@@ -155,11 +165,11 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
             </li>
           )
         })}
-        {!filtered.length && <li className="rounded-xl bg-white p-4 text-sm text-ink-500">Tidak ada akun yang cocok.</li>}
+        {!filtered.length && <li className="rounded-xl bg-white p-6 text-center text-sm text-ink-500">{emptyText}</li>}
       </ul>
 
-      <section className="hidden rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 md:block">
-        <Table head={[...(isOwner ? ['Pilih'] : []), 'ID akun', 'Brand', 'Sumber', 'Nomor akun', 'Masuk', 'Aktif s/d', 'Voucher utama', 'Tambahan', 'Status', '']} empty="Tidak ada akun yang cocok.">
+      <section key={`d-${listKey}`} className="account-list animate-enter hidden rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 md:block">
+        <Table head={[...(isOwner ? ['Pilih'] : []), 'ID akun', 'Brand', 'Sumber', 'Nomor akun', 'Masuk', 'Aktif s/d', 'Voucher utama', 'Tambahan', 'Status', '']} empty={emptyText}>
           {filtered.map((r) => {
             const main = r.vouchers.filter((v) => v.grp === 'main')
             const extra = r.vouchers.filter((v) => v.grp === 'extra')
@@ -186,7 +196,11 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
                   </div>
                 </td>
                 <td className="whitespace-nowrap">{extra.length ? `${extra.filter((v) => v.status === 'available').length}/${extra.length}` : '—'}</td>
-                <td><Pill tone={st.tone}>{st.label}</Pill></td>
+                <td>
+                  <Pill tone={st.tone}>{st.label}</Pill>
+                  {inArchive && r.archived_at && <div className="mt-1 whitespace-nowrap text-xs text-ink-500">Diarsipkan {dateLabel(jktDate(r.archived_at))}</div>}
+                  {inArchive && r.archive_note && <div className="text-xs text-ink-500">{r.archive_note}</div>}
+                </td>
                 <td><Link href={`/accounts/${r.id}`} className="font-semibold text-orange-700">Detail</Link></td>
               </tr>
             )
@@ -195,7 +209,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
       </section>
       </Selectable>
       <p className="text-xs text-ink-500">
-          Menampilkan {filtered.length} dari {rows.length} akun. Nomor akun hanya ada untuk akun dari Virtual Machine. Stok dihitung dari data yang dicatat di
+          Menampilkan {filtered.length} dari {rows.length} akun{inArchive ? ' di arsip' : ''}. Nomor akun hanya ada untuk akun dari Virtual Machine. Stok dihitung dari data yang dicatat di
           aplikasi ini, bukan disinkronkan dari aplikasi brand.
       </p>
     </div>

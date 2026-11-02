@@ -6,7 +6,7 @@ import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Table, inputCls } from '@/components/ui'
 import { dateLabel, jktDate, jktDateTime } from '@/lib/format'
 import { ACCOUNT_STATE, LEDGER_REASON, VOUCHER_STATUS, accountState, currentVersion, ruleLabel, type Rule, type VoucherStatus } from '@/lib/inventory'
-import { cancelUseNow, deleteAccount, requestStockAdjust, requestUseCancel } from './actions'
+import { archiveAccount, cancelUseNow, requestStockAdjust, requestUseCancel, restoreAccount } from './actions'
 import { UseVoucherForm } from './use-voucher'
 import { CopyButton } from '@/components/copy-button'
 import { BAPERAN_STATUS, baperanIdentity, baperanStatus } from '@/lib/baperan'
@@ -60,7 +60,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   const mainAvail = main.filter((v) => v.status === 'available').length
 
   const adjustForm = (v: Voucher) =>
-    ['available', 'expired', 'broken'].includes(v.status) &&
+    !account.archived_at && ['available', 'expired', 'broken'].includes(v.status) &&
     (pendingSet.has(v.id) ? (
       <span className="text-xs font-semibold text-warning-700">Koreksi stok menunggu owner</span>
     ) : (
@@ -79,7 +79,9 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       </details>
     ))
 
+  // Akun arsip hanya untuk dilihat: voucher tidak bisa dipakai atau dikoreksi sampai dipulihkan.
   const usageControls = (v: Voucher) => {
+    if (account.archived_at) return null
     if (v.status === 'available')
       return <UseVoucherForm voucherId={v.id} voucherCode={v.code} accountId={account.id} rule={ruleOf(v.voucher_type_id)} />
     const u = usageOf(v.id)
@@ -129,6 +131,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       </nav>
       <PageHeader title={account.account_code}>
         <Pill tone={state.tone}>{state.label}</Pill>
+        {account.archived_at && <Pill tone="danger">Diarsipkan</Pill>}
         {bStatus ? <Pill tone={bStatus.tone}>{bStatus.label}</Pill> : account.active_until && account.active_until < jktDate() && <Pill tone="danger">Masa aktif lewat</Pill>}
       </PageHeader>
 
@@ -140,6 +143,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
           </div>
         ))}
       </dl>
+      {account.archived_at && <Note tone="warning">Akun ini diarsipkan{account.archive_note ? `: ${account.archive_note}` : ''}. Riwayat tetap utuh; pulihkan akun untuk memakainya lagi.</Note>}
       {account.needs_review && <Note tone="warning">Perlu diperiksa: {account.review_note ?? 'ditandai owner'}</Note>}
 
       <Card title={`Voucher utama (${main.length})`} aside={<span className="text-sm text-ink-500">{mainAvail} dari {main.length} tersedia</span>}>
@@ -202,26 +206,37 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         )}
       </Card>
 
-      {isOwner && (
+      {isOwner && (account.archived_at ? (
+        <Card title="Akun diarsipkan">
+          <p className="text-sm text-ink-500">
+            Akun ini tidak muncul di daftar aktif dan tidak bisa dipakai untuk transaksi baru. Memulihkan akun mengembalikannya beserta voucher,
+            status voucher, dan riwayatnya; tidak ada transaksi yang dibuat ulang.
+          </p>
+          <ActionForm action={restoreAccount} className="flex flex-col items-start gap-2" confirm={`Pulihkan akun ${account.account_code}?`}>
+            <input type="hidden" name="account" value={account.id} />
+            <SubmitButton variant="primary" pendingText="Memulihkan…">Pulihkan akun</SubmitButton>
+          </ActionForm>
+        </Card>
+      ) : (
         <Card title="Hapus akun">
           <p className="text-sm text-ink-500">
-            Hanya untuk akun yang salah input dan belum pernah dipakai. Akun yang punya transaksi atau histori stok selain restock
-            ditolak agar histori keuangan tetap utuh. Voucher, restock, dan riwayat restock akun ini ikut terhapus; tindakan dicatat di audit log.
+            Akun masuk ke arsip: hilang dari daftar aktif dan pilihan transaksi baru. Transaksi, voucher, dan laporan keuangan tidak berubah, dan akun bisa dipulihkan.
           </p>
           <details className="text-sm">
             <summary className="cursor-pointer font-semibold text-danger-700">Hapus akun {account.account_code}</summary>
-            <ActionForm action={deleteAccount} className="mt-2 flex max-w-md flex-col gap-2"
-              confirm={`Hapus akun ${account.account_code} beserta vouchernya? Tindakan ini tidak bisa dibatalkan.`}>
+            <ActionForm action={archiveAccount} className="mt-2 flex max-w-md flex-col gap-2"
+              confirm={`Arsipkan akun ${account.account_code}? Transaksi dan voucher tidak berubah, dan akun bisa dipulihkan.`}>
               <input type="hidden" name="account" value={account.id} />
+              <input type="hidden" name="code" value={account.account_code} />
               <label className="flex flex-col gap-1.5 text-sm font-semibold">
-                Ketik ID akun untuk konfirmasi
-                <input name="confirm_code" required autoComplete="off" placeholder={account.account_code} className={`${inputCls} font-mono`} />
+                Alasan (opsional)
+                <input name="note" maxLength={200} autoComplete="off" placeholder="mis. salah input" className={inputCls} />
               </label>
-              <SubmitButton variant="danger" pendingText="Menghapus…">Hapus akun</SubmitButton>
+              <SubmitButton variant="danger" pendingText="Mengarsipkan…">Arsipkan akun</SubmitButton>
             </ActionForm>
           </details>
         </Card>
-      )}
+      ))}
 
       <Card title="Riwayat akun">
         <Table head={['Waktu', 'Peristiwa', 'Voucher', 'Stok', 'Oleh', 'Referensi']} empty="Belum ada riwayat.">
