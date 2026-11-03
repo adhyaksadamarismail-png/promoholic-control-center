@@ -1,0 +1,242 @@
+import Link from 'next/link'
+import { notFound, redirect } from 'next/navigation'
+import { z } from 'zod'
+import { getSessionClient, getViewer } from '@/lib/auth'
+import { ActionForm, SubmitButton } from '@/components/action-form'
+import { Card, Note, PageHeader, Pill, Table, inputCls } from '@/components/ui'
+import { dateLabel, jktDate, jktDateTime } from '@/lib/format'
+import { ACCOUNT_STATE, LEDGER_REASON, VOUCHER_STATUS, accountState, currentVersion, ruleLabel, type Rule, type VoucherStatus } from '@/lib/inventory'
+import { cancelUseNow, deleteAccount, requestStockAdjust, requestUseCancel } from './actions'
+import { UseVoucherForm } from './use-voucher'
+import { CopyButton } from '@/components/copy-button'
+import { BAPERAN_STATUS, baperanStatus, phoneLabel } from '@/lib/baperan'
+
+export const dynamic = 'force-dynamic'
+
+type Usage = { id: string; voucher_id: string; order_id: string; admin_id: string; customer_name: string; customer_wa: string; admin_name: string; order_code: string; used_at: string; reversed_at: string | null }
+type Voucher = { id: string; code: string; voucher_type_id: string; grp: 'main' | 'extra'; slot: number; status: VoucherStatus; allocated_cost: number }
+
+export default async function AccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  if (!z.string().uuid().safeParse(id).success) notFound()
+  // Query pertama berjalan bersamaan dengan pemeriksaan sesi (RLS tetap berlaku); tampilan menunggu keduanya.
+  const supabase = await getSessionClient()
+  const [viewer, { data: account }, { data: vdata }] = await Promise.all([
+    getViewer(),
+    supabase.from('account_list').select('*').eq('id', id).maybeSingle(),
+    supabase.from('vouchers').select('id, code, voucher_type_id, grp, slot, status, allocated_cost').eq('account_id', id),
+  ])
+  if (!viewer) redirect('/login')
+  const { isOwner } = viewer
+  if (!account) notFound()
+  const vouchers = (vdata ?? []) as Voucher[]
+  const vIds = vouchers.map((v) => v.id)
+
+  const [{ data: brand }, { data: types }, { data: versions }, { data: usages }, { data: ledger }, { data: restocks }, { data: profiles }, { data: pending }, { data: pendingCancels }] = await Promise.all([
+    supabase.from('brands').select('name').eq('id', account.brand_id).single(),
+    supabase.from('voucher_types').select('id, code, name, grp, sort_order').eq('brand_id', account.brand_id),
+    supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
+    // View tersamar: WhatsApp customer hanya terlihat penuh untuk owner dan admin yang mencatat.
+    supabase.from('voucher_usage_list').select('*').in('voucher_id', vIds).order('used_at', { ascending: false }),
+    supabase.from('stock_ledger').select('id, voucher_id, delta, reason, status_after, ref, actor_id, at').eq('account_id', id).order('at', { ascending: false }).limit(50),
+    supabase.from('restocks').select('code, kind, created_at, items').eq('account_id', id).order('created_at'),
+    supabase.from('profiles').select('id, full_name'),
+    supabase.from('approval_requests').select('target_id').eq('kind', 'stock_adjust').eq('status', 'pending').in('target_id', vIds),
+    // RLS: staf hanya melihat pengajuannya sendiri; owner semua.
+    supabase.from('approval_requests').select('target_id').eq('kind', 'order_cancel').eq('status', 'pending'),
+  ])
+  const typeOf = (tid: string) => types?.find((t) => t.id === tid)
+  const ruleOf = (tid: string) => currentVersion((versions ?? []) as (Rule & { voucher_type_id: string; effective_from: string })[], tid) ?? null
+  const usageOf = (vid: string) => (usages as Usage[] | null)?.find((u) => u.voucher_id === vid && !u.reversed_at)
+  const reversedOf = (vid: string) => (usages as Usage[] | null)?.filter((u) => u.voucher_id === vid && u.reversed_at) ?? []
+  const codeOf = (vid: string) => vouchers.find((v) => v.id === vid)?.code
+  const nameOf = (pid: string | null) => profiles?.find((p) => p.id === pid)?.full_name ?? 'Sistem'
+  const pendingSet = new Set((pending ?? []).map((p) => p.target_id))
+  const cancelPending = new Set((pendingCancels ?? []).map((p) => p.target_id))
+  const sort = (a: Voucher, b: Voucher) => (typeOf(a.voucher_type_id)?.sort_order ?? 0) - (typeOf(b.voucher_type_id)?.sort_order ?? 0) || a.slot - b.slot
+  const main = vouchers.filter((v) => v.grp === 'main').sort(sort)
+  const extra = vouchers.filter((v) => v.grp === 'extra').sort(sort)
+  const state = ACCOUNT_STATE[accountState(account.needs_review, vouchers.map((v) => v.status))]
+  const mainAvail = main.filter((v) => v.status === 'available').length
+
+  const adjustForm = (v: Voucher) =>
+    ['available', 'expired', 'broken'].includes(v.status) &&
+    (pendingSet.has(v.id) ? (
+      <span className="text-xs font-semibold text-warning-700">Koreksi stok menunggu owner</span>
+    ) : (
+      <details className="text-sm">
+        <summary className="cursor-pointer text-xs font-semibold text-orange-700">Ajukan koreksi stok</summary>
+        <ActionForm action={requestStockAdjust} className="mt-2 flex flex-col gap-1.5">
+          <input type="hidden" name="voucher" value={v.id} />
+          <select name="new_status" className={inputCls} defaultValue={v.status === 'available' ? 'broken' : 'available'}>
+            <option value="available">Tersedia</option>
+            <option value="broken">Rusak / tidak bisa dipakai</option>
+            <option value="expired">Kedaluwarsa</option>
+          </select>
+          <input name="reason" required minLength={3} placeholder="Alasan" className={inputCls} />
+          <SubmitButton variant="ghost" className="min-h-9">Kirim ke owner</SubmitButton>
+        </ActionForm>
+      </details>
+    ))
+
+  const usageControls = (v: Voucher) => {
+    if (v.status === 'available')
+      return <UseVoucherForm voucherId={v.id} voucherCode={v.code} accountId={account.id} rule={ruleOf(v.voucher_type_id)} />
+    const u = usageOf(v.id)
+    if (v.status !== 'used' || !u) return null
+    if (cancelPending.has(u.order_id)) return <span className="text-xs font-semibold text-warning-700">Pembatalan {u.order_code} menunggu owner</span>
+    if (!isOwner && u.admin_id !== viewer.userId) return null
+    return (
+      <details className="text-sm">
+        <summary className="cursor-pointer text-xs font-semibold text-orange-700">{isOwner ? 'Batalkan pemakaian' : 'Ajukan pembatalan'}</summary>
+        <ActionForm
+          action={isOwner ? cancelUseNow : requestUseCancel}
+          className="mt-2 flex flex-col gap-1.5"
+          confirm={isOwner ? `Batalkan pemakaian ${v.code} (order ${u.order_code})? Voucher kembali tersedia.` : undefined}
+        >
+          <input type="hidden" name="order" value={u.order_id} />
+          <input type="hidden" name="account" value={account.id} />
+          <input name="reason" required minLength={3} placeholder="Alasan, mis. salah klik" className={inputCls} />
+          <SubmitButton variant="ghost">{isOwner ? 'Batalkan pemakaian' : 'Kirim pengajuan'}</SubmitButton>
+        </ActionForm>
+      </details>
+    )
+  }
+
+  const baperan = account.inventory === 'baperan'
+  const bStatus = baperan ? BAPERAN_STATUS[baperanStatus(account.active_until)] : null
+  const info: [string, React.ReactNode][] = [
+    ['Brand', brand?.name],
+    ['Sumber', baperan ? 'Inventaris Baperan' : account.source === 'vm' ? 'Virtual Machine' : 'Panel Admin'],
+    ...(account.source === 'vm' ? ([['Nomor akun', <span key="n" className="font-mono">{account.account_number}</span>]] as [string, React.ReactNode][]) : []),
+    ...(baperan
+      ? ([
+          ['Nomor telepon', <span key="n" className="flex flex-wrap items-center gap-2"><span className="font-mono">{phoneLabel(account.account_number)}</span><CopyButton value={account.account_number} label="Salin nomor" /></span>],
+          ...(isOwner ? [['PIN', account.pin ? <span key="p" className="flex flex-wrap items-center gap-2"><span className="font-mono">{account.pin}</span><CopyButton value={account.pin} label="Salin PIN" /></span> : '—']] : []),
+        ] as [string, React.ReactNode][])
+      : []),
+    ...(isOwner && account.vm_device_id ? ([['Device', account.vm_device_id]] as [string, React.ReactNode][]) : []),
+    ['Masuk', jktDateTime(account.entered_at)],
+    ['Aktif s/d', account.active_until ? dateLabel(account.active_until, baperan ? 'long' : 'short') : '—'],
+    ['Restock', restocks?.map((r) => r.code).join(', ') || (account.source === 'vm' && !isOwner ? 'Hanya owner' : '—')],
+  ]
+
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-5">
+      <nav className="text-sm text-ink-500">
+        <Link href={account.inventory === 'baperan' ? '/accounts?view=baperan' : '/accounts'} className="font-semibold text-orange-700">{account.inventory === 'baperan' ? 'Inventaris Baperan' : 'Daftar Akun'}</Link> / Detail akun
+      </nav>
+      <PageHeader title={account.account_code}>
+        <Pill tone={state.tone}>{state.label}</Pill>
+        {bStatus ? <Pill tone={bStatus.tone}>{bStatus.label}</Pill> : account.active_until && account.active_until < jktDate() && <Pill tone="danger">Masa aktif lewat</Pill>}
+      </PageHeader>
+
+      <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:grid-cols-3 lg:grid-cols-6">
+        {info.map(([k, v]) => (
+          <div key={k} className="flex flex-col gap-0.5">
+            <dt className="text-xs font-bold uppercase tracking-[0.06em] text-ink-500">{k}</dt>
+            <dd className="text-sm font-semibold">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {account.needs_review && <Note tone="warning">Perlu diperiksa: {account.review_note ?? 'ditandai owner'}</Note>}
+
+      <Card title={`Voucher utama (${main.length})`} aside={<span className="text-sm text-ink-500">{mainAvail} dari {main.length} tersedia</span>}>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {main.map((v, i) => {
+            const t = typeOf(v.voucher_type_id)
+            const u = usageOf(v.id)
+            const st = VOUCHER_STATUS[v.status]
+            return (
+              <article key={v.id} className={`flex flex-col gap-2 rounded-xl border p-4 ${v.status === 'available' ? 'border-success-700/40' : 'border-cream-300'}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.06em] text-ink-500">Kolom {i + 1} · {t?.code}</span>
+                  <Pill tone={st.tone}>{st.label}</Pill>
+                </div>
+                <span className="font-display text-base font-semibold">{t?.name}</span>
+                <span className="text-xs text-ink-500">{ruleLabel(ruleOf(v.voucher_type_id))}</span>
+                <span className="font-mono text-xs">{v.code}</span>
+                <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-[#f1eadc] pt-2 text-sm">
+                  <dt className="text-ink-500">Customer</dt><dd className="font-semibold">{u?.customer_name ?? '—'}</dd>
+                  <dt className="text-ink-500">WhatsApp</dt><dd className="font-mono text-[13px]">{u?.customer_wa ?? '—'}</dd>
+                  <dt className="text-ink-500">ID order</dt><dd className="font-mono text-[13px]">{u?.order_code ?? '—'}</dd>
+                  <dt className="text-ink-500">Waktu pakai</dt><dd>{u ? jktDateTime(u.used_at) : '—'}</dd>
+                  <dt className="text-ink-500">Admin</dt><dd>{u?.admin_name ?? '—'}</dd>
+                </dl>
+                {reversedOf(v.id).map((r) => (
+                  <span key={r.id} className="text-xs text-ink-500">Pernah dipakai {r.order_code}, dibatalkan {jktDateTime(r.reversed_at)}</span>
+                ))}
+                {usageControls(v)}
+                {adjustForm(v)}
+              </article>
+            )
+          })}
+        </div>
+        {!main.length && <p className="text-sm text-ink-500">Belum ada voucher utama.</p>}
+      </Card>
+
+      <Card title="Voucher tambahan">
+        {extra.length ? (
+          <Table head={['ID voucher', 'Ketentuan', 'Status', 'Customer', 'WhatsApp', 'ID order', 'Waktu pakai', 'Admin', '']}>
+            {extra.map((v) => {
+              const u = usageOf(v.id)
+              const st = VOUCHER_STATUS[v.status]
+              return (
+                <tr key={v.id}>
+                  <td className="font-mono text-[13px]">{v.code}</td>
+                  <td className="text-ink-500">{typeOf(v.voucher_type_id)?.name} · {ruleLabel(ruleOf(v.voucher_type_id))}</td>
+                  <td><Pill tone={st.tone}>{st.label}</Pill></td>
+                  <td>{u?.customer_name ?? '—'}</td>
+                  <td className="font-mono text-[13px]">{u?.customer_wa ?? '—'}</td>
+                  <td className="font-mono text-[13px]">{u?.order_code ?? '—'}</td>
+                  <td>{u ? jktDateTime(u.used_at) : '—'}</td>
+                  <td>{u?.admin_name ?? '—'}</td>
+                  <td className="min-w-56"><div className="flex flex-col gap-2">{usageControls(v)}{adjustForm(v)}</div></td>
+                </tr>
+              )
+            })}
+          </Table>
+        ) : (
+          <p className="text-sm text-ink-500">Akun ini tidak memiliki voucher tambahan. Voucher tambahan hanya dicatat bila memang tersedia di akun.</p>
+        )}
+      </Card>
+
+      {isOwner && (
+        <Card title="Hapus akun">
+          <p className="text-sm text-ink-500">
+            Hanya untuk akun yang salah input dan belum pernah dipakai. Akun yang punya transaksi atau histori stok selain restock
+            ditolak agar histori keuangan tetap utuh. Voucher, restock, dan riwayat restock akun ini ikut terhapus; tindakan dicatat di audit log.
+          </p>
+          <details className="text-sm">
+            <summary className="cursor-pointer font-semibold text-danger-700">Hapus akun {account.account_code}</summary>
+            <ActionForm action={deleteAccount} className="mt-2 flex max-w-md flex-col gap-2"
+              confirm={`Hapus akun ${account.account_code} beserta vouchernya? Tindakan ini tidak bisa dibatalkan.`}>
+              <input type="hidden" name="account" value={account.id} />
+              <label className="flex flex-col gap-1.5 text-sm font-semibold">
+                Ketik ID akun untuk konfirmasi
+                <input name="confirm_code" required autoComplete="off" placeholder={account.account_code} className={`${inputCls} font-mono`} />
+              </label>
+              <SubmitButton variant="danger" pendingText="Menghapus…">Hapus akun</SubmitButton>
+            </ActionForm>
+          </details>
+        </Card>
+      )}
+
+      <Card title="Riwayat akun">
+        <Table head={['Waktu', 'Peristiwa', 'Voucher', 'Stok', 'Oleh', 'Referensi']} empty="Belum ada riwayat.">
+          {(ledger ?? []).map((l) => (
+            <tr key={l.id}>
+              <td className="whitespace-nowrap">{jktDateTime(l.at)}</td>
+              <td>{LEDGER_REASON[l.reason] ?? l.reason} → {VOUCHER_STATUS[l.status_after as VoucherStatus]?.label}</td>
+              <td className="font-mono text-[13px]">{codeOf(l.voucher_id)}</td>
+              <td className={l.delta > 0 ? 'text-success-700' : l.delta < 0 ? 'text-danger-700' : 'text-ink-500'}>{l.delta > 0 ? '+1' : l.delta < 0 ? '−1' : '0'}</td>
+              <td>{nameOf(l.actor_id)}</td>
+              <td className="font-mono text-[13px]">{l.ref ?? '—'}</td>
+            </tr>
+          ))}
+        </Table>
+        <p className="text-xs text-ink-500">Riwayat stok hanya bisa ditambah, tidak bisa diubah atau dihapus.</p>
+      </Card>
+    </div>
+  )
+}
