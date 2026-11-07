@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { StepTitle } from '@/components/ui'
 import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useState } from 'react'
 import { accountCodeError, accountKey, currentVersion, normalizeAccountCode, ruleLabel, voucherBase, type Rule } from '@/lib/inventory'
@@ -115,11 +116,11 @@ export function PanelForm(props: {
       }}
     >
       <input type="hidden" name="idem" value={idem} />
-      <fieldset disabled={pending || !hydrated} className="flex min-w-0 flex-col gap-4 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
+      <fieldset data-reveal disabled={pending || !hydrated} className="flex min-w-0 flex-col gap-5 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
         {mode === 'new' ? (
           <>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-semibold">Brand</span>
+            <div className="flex flex-col gap-2.5">
+              <StepTitle n={1}>Brand</StepTitle>
               <input type="hidden" name="brand" value={brand} />
               <div className="flex flex-wrap gap-2">
                 {brands.map((b) => (
@@ -128,13 +129,14 @@ export function PanelForm(props: {
                     key={b.id}
                     aria-pressed={brand === b.id}
                     onClick={() => { setBrand(b.id); setQty({}); setCode('') }}
-                    className={`min-h-11 rounded-xl border px-3.5 text-sm font-semibold ${brand === b.id ? 'border-navy-900 bg-navy-900 text-white' : 'border-[#dcd2bf] bg-white'}`}
+                    className={`btn-press min-h-11 rounded-xl border px-3.5 text-sm font-semibold ${brand === b.id ? 'border-navy-900 bg-navy-900 text-white shadow-[0_8px_18px_-10px_rgb(21_35_66/0.7)]' : 'border-[#dcd2bf] bg-white hover:border-navy-700'}`}
                   >
                     {b.name}
                   </button>
                 ))}
               </div>
             </div>
+            <StepTitle n={2}>Identitas akun</StepTitle>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <label className={label}>
                 ID akun
@@ -157,7 +159,7 @@ export function PanelForm(props: {
           </>
         ) : (
           <label className={label}>
-            Akun Panel
+            <StepTitle n={1}>Akun Panel</StepTitle>
             <select name="account" value={accountId} onChange={(e) => { setAccountId(e.target.value); setQty({}) }} className={input} required>
               <option value="">Pilih akun…</option>
               {brands.map((b) => (
@@ -174,7 +176,7 @@ export function PanelForm(props: {
 
         {autoTypes.length > 0 && (
           <div className="flex flex-col gap-2">
-            <span className="text-sm font-semibold">Voucher utama otomatis</span>
+            <StepTitle n={mode === 'new' ? 3 : 2} hint="dibuat otomatis per akun">Voucher utama</StepTitle>
             {autoTypes.map((t) => (
               <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl bg-cream-100 px-3 py-2.5 text-sm">
                 <span>
@@ -189,21 +191,23 @@ export function PanelForm(props: {
 
         {brandId && (
           <div className="flex flex-col gap-2">
-            <span className="text-sm font-semibold">{autoTypes.length ? 'Voucher tambahan (jumlah sesuai yang ada di akun)' : 'Jumlah voucher'}</span>
+            <StepTitle n={(mode === 'new' ? 3 : 2) + (autoTypes.length ? 1 : 0)} hint={autoTypes.length ? 'jumlah sesuai yang ada di akun' : undefined}>
+              {autoTypes.length ? 'Voucher tambahan' : 'Jumlah voucher'}
+            </StepTitle>
             {!manualTypes.length && <p className="text-sm text-ink-500">Brand ini tidak punya jenis voucher yang diisi manual.</p>}
             {manualTypes.map((t) => {
               const n = qty[t.code] ?? 0
               const set = (v: number) => setQty((q) => ({ ...q, [t.code]: Math.max(0, Math.min(20, v)) }))
               return (
-                <div key={t.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#eadfcb] px-3 py-2 text-sm">
+                <div key={t.id} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm transition-colors ${n ? 'border-orange-500 bg-orange-100/60' : 'border-[#eadfcb]'}`}>
                   <span>
                     <b>{t.name}</b>
                     <span className="block text-xs text-ink-500">{ruleLabel(currentVersion(versions, t.id))}</span>
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <button type="button" aria-label={`Kurangi ${t.name}`} onClick={() => set(n - 1)} className="size-10 rounded-lg border border-[#dcd2bf] text-lg font-bold">−</button>
+                    <button type="button" aria-label={`Kurangi ${t.name}`} onClick={() => set(n - 1)} className="size-10 rounded-lg border border-[#dcd2bf] bg-white text-lg font-bold hover:border-navy-700">−</button>
                     <input name={`qty_${t.code}`} value={n} readOnly aria-label={`Jumlah ${t.name}`} className="w-10 text-center font-display text-lg font-bold" />
-                    <button type="button" aria-label={`Tambah ${t.name}`} onClick={() => set(n + 1)} className="size-10 rounded-lg border border-[#dcd2bf] text-lg font-bold">+</button>
+                    <button type="button" aria-label={`Tambah ${t.name}`} onClick={() => set(n + 1)} className="size-10 rounded-lg border border-[#dcd2bf] bg-white text-lg font-bold hover:border-navy-700">+</button>
                   </span>
                 </div>
               )
@@ -238,7 +242,7 @@ export function PanelForm(props: {
         </div>
       </fieldset>
 
-      <aside className="flex flex-col gap-2 rounded-2xl bg-navy-900 p-5 text-sm text-white lg:sticky lg:top-6">
+      <aside data-reveal className="flex flex-col gap-2 rounded-2xl bg-navy-900 p-5 text-sm text-white shadow-[var(--shadow-lift)] lg:sticky lg:top-6">
         <h2 className="font-display text-base font-semibold">Voucher yang akan dibuat</h2>
         <span className="text-xs text-[#c5cbd9]">ID dibuat server dan unik. Voucher utama tidak pernah dibuat dua kali untuk akun yang sama.</span>
         {!preview.length && <span className="text-[#c5cbd9]">Tidak ada voucher yang akan ditambahkan.</span>}

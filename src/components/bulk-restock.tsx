@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRef, useState, useTransition } from 'react'
 import { useHydrated } from '@/components/action-form'
+import { StepTitle } from '@/components/ui'
 import { BAPERAN_EXAMPLE, BULK_EXAMPLE, parseBaperan, parseBulk, type BaperanIdentity, type BaperanRow, type BulkMode, type BulkRow, type BulkSource } from '@/lib/bulk'
 import { commitBulk, commitBulkBaperan, previewBulk, previewBulkBaperan } from '@/app/(app)/panel/bulk-actions'
 import { phoneLabel } from '@/lib/baperan'
@@ -236,9 +237,9 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
 
   return (
     <div className="flex flex-col gap-4">
-      <fieldset disabled={busy || !hydrated} className="grid grid-cols-1 gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 lg:grid-cols-2">
+      <fieldset data-reveal disabled={busy || !hydrated} className="grid grid-cols-1 gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5 lg:grid-cols-2">
         <div className="flex flex-col gap-1.5 lg:col-span-2">
-          <span className="text-sm font-semibold">Jenis restock</span>
+          <StepTitle n={1}>Jenis restock</StepTitle>
           <div className={`grid grid-cols-1 gap-2 ${source === 'panel' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             {MODES.filter((m) => source === 'panel' || m.key !== 'baperan').map((m) => (
               <label key={m.key} className={`flex cursor-pointer flex-col gap-0.5 rounded-xl border p-3 text-sm transition-colors duration-150 ${mode === m.key ? 'border-navy-900 bg-navy-100/60' : 'border-[#dcd2bf]'}`}>
@@ -253,7 +254,7 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
         </div>
         {source === 'panel' && !baperan && (
           <label className={label}>
-            Brand
+            <StepTitle n={2}>Brand</StepTitle>
             <select value={brand} onChange={(e) => { setBrand(e.target.value); invalidate() }} className={input}>
               {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
@@ -322,7 +323,9 @@ export function BulkRestock({ source, brands, costMissing = [], isOwner = false,
           </div>
         )}
         <label className={`${label} lg:col-span-2`}>
-          {!baperan ? 'Data (satu akun per baris)' : byId ? 'Data (satu ID akun per baris)' : 'Data (satu akun per baris: nomor telepon | PIN)'}
+          <StepTitle n={source === 'panel' && !baperan ? 3 : 2} hint={!baperan ? 'satu akun per baris' : byId ? 'satu ID akun per baris' : 'satu akun per baris: nomor telepon | PIN'}>
+            Data akun
+          </StepTitle>
           <textarea
             value={text}
             onChange={(e) => { setText(e.target.value); setFileName(''); invalidate() }}

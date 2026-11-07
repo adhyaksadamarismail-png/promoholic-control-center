@@ -89,7 +89,7 @@ export function BaperanRestockForm({ typeName, rule, today }: { typeName: string
       }}
     >
       <input type="hidden" name="idem" value={idem} />
-      <fieldset disabled={pending || !hydrated} className="flex min-w-0 flex-col gap-4 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
+      <fieldset data-reveal disabled={pending || !hydrated} className="flex min-w-0 flex-col gap-4 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
         <div className="flex flex-col gap-1 rounded-lg bg-cream-100 px-3 py-2.5 text-[13px] text-ink-500 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <span>
             Satu nomor telepon = satu akun Baperan dengan tepat 1 voucher {typeName} · {ruleLabel(rule)}. Terpisah dari akun reguler (A, B, C).
@@ -125,7 +125,7 @@ export function BaperanRestockForm({ typeName, rule, today }: { typeName: string
         </div>
       </fieldset>
 
-      <aside className="flex flex-col gap-1 rounded-2xl bg-navy-900 p-5 text-sm text-white lg:sticky lg:top-6">
+      <aside data-reveal className="flex flex-col gap-1 rounded-2xl bg-navy-900 p-5 text-sm text-white shadow-[var(--shadow-lift)] lg:sticky lg:top-6">
         <h2 className="pb-1 font-display text-base font-semibold">Ringkasan restock</h2>
         {[
           ['Nomor telepon', <span key="p" className="font-mono">{phoneOk ? phoneLabel(phoneNorm) : '—'}</span>],

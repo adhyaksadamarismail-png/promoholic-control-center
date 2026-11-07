@@ -160,3 +160,14 @@ export const labelCls = 'flex flex-col gap-1.5 text-sm font-semibold'
 export const btnPrimary = 'btn-press inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 text-sm font-semibold text-navy-900 shadow-[0_6px_16px_-8px_rgb(255_133_27/0.8)] hover:bg-[#ff9433] disabled:bg-[#e7e2d8] disabled:text-[#6e7689] disabled:shadow-none'
 export const btnSecondary = 'btn-press inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cream-300 bg-white px-4 text-sm font-semibold text-navy-900 hover:border-[#dcd2bf] hover:bg-cream-50 disabled:opacity-50'
 export const btnDark = 'btn-press inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-navy-900 px-4 text-sm font-semibold text-white hover:bg-navy-800 disabled:opacity-50'
+
+/** Judul langkah bernomor untuk form panjang (order, restock). */
+export function StepTitle({ n, children, hint }: { n: number; children: React.ReactNode; hint?: React.ReactNode }) {
+  return (
+    <span className="flex flex-wrap items-center gap-2.5">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-navy-900 font-display text-sm font-semibold text-white">{n}</span>
+      <span className="font-display text-base font-semibold">{children}</span>
+      {hint && <span className="text-xs text-ink-500">{hint}</span>}
+    </span>
+  )
+}
