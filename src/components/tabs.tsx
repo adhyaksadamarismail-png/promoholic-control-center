@@ -22,6 +22,10 @@ export function Tabs({ items, active }: { items: TabItem[]; active: string }) {
     if (animate && !reducedMotion()) gsap.to(ind.current, { ...box, duration: 0.32, ease: 'power3.out' })
     else gsap.set(ind.current, box)
     root.current.dataset.ready = '1'
+    // Baris tab yang bisa digeser (HP): pastikan tab aktif terlihat, tanpa menggulir halaman.
+    const nav = root.current
+    if (el.offsetLeft < nav.scrollLeft || el.offsetLeft + el.offsetWidth > nav.scrollLeft + nav.clientWidth)
+      nav.scrollTo({ left: Math.max(0, el.offsetLeft - 16), behavior: animate && !reducedMotion() ? 'smooth' : 'auto' })
   }
 
   const { contextSafe } = useGSAP(
