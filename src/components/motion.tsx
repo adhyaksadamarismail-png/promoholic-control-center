@@ -8,7 +8,10 @@ import { useGSAP } from '@gsap/react'
 gsap.registerPlugin(useGSAP)
 
 /** Gerak dimatikan bila pengguna meminta gerak minimal; semua animasi di sini memeriksa ini. */
-export const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+// Juga dilewati bila halaman sedang di tab latar belakang: browser menahan animasi di sana, dan konten tidak boleh
+// tertahan tak terlihat sampai tab dibuka lagi.
+export const reducedMotion = () =>
+  typeof window !== 'undefined' && (window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.visibilityState === 'hidden')
 
 // Setelah animasi pertama menyiapkan keadaan awalnya, CSS tidak lagi perlu menyembunyikan [data-reveal].
 const markReady = () => document.documentElement.classList.add('motion-ready')
@@ -107,5 +110,22 @@ export function Progress({ value, className = 'bg-orange-500', label }: { value:
     <span role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={label} className="block h-2 w-full overflow-hidden rounded-full bg-cream-100">
       <span ref={bar} className={`block h-full origin-left rounded-full ${className}`} style={{ width: `${pct}%` }} />
     </span>
+  )
+}
+
+/** Batang grafik tumbuh dari dasar saat tampil (anak bertanda [data-bar]). */
+export function GrowBars({ children, className, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
+  const root = useRef<HTMLDivElement>(null)
+  useGSAP(
+    () => {
+      if (reducedMotion()) return
+      gsap.from(gsap.utils.toArray<HTMLElement>('[data-bar]', root.current), { scaleY: 0, transformOrigin: (_: number, el: HTMLElement) => (el.dataset.bar === 'neg' ? '50% 0%' : '50% 100%'), duration: 0.6, ease: 'power3.out', stagger: 0.04, clearProps: 'transform' })
+    },
+    { scope: root },
+  )
+  return (
+    <div ref={root} className={className} {...rest}>
+      {children}
+    </div>
   )
 }

@@ -6,6 +6,9 @@ import { addDays, dateLabel, isYmd, jktDate, jktDateTime, rupiah } from '@/lib/f
 import { loadFinance, periodLabel, shiftPeriod, type Period } from '@/lib/finance'
 import { currentVersion, ruleLabel, type Rule } from '@/lib/inventory'
 import { addExpense, addPurchase, scheduleCreditPrice, setAllocation } from './actions'
+import { FinanceRecap } from './recap'
+import { GrowBars } from '@/components/motion'
+import { Icon } from '@/components/icons'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,16 +23,24 @@ const METHOD: Record<string, { name: string; desc: string }> = {
   weighted_max_discount: { name: 'Berbobot potongan maksimum', desc: 'Voucher dengan potongan maksimum lebih besar menanggung modal lebih besar.' },
 }
 
-export default async function FinancePage({ searchParams }: { searchParams: Promise<{ p?: string; d?: string }> }) {
+export default async function FinancePage({ searchParams }: { searchParams: Promise<{ p?: string; d?: string; view?: string; brand?: string; page?: string }> }) {
   const supabase = await requireOwnerPage()
   const sp = await searchParams
   const p: Period = PERIODS.some((x) => x.key === sp.p) ? (sp.p as Period) : 'week'
   const today = jktDate()
   const d = isYmd(sp.d) ? sp.d : today
+  const VIEWS = [
+    { key: 'ringkasan', label: 'Ringkasan' },
+    { key: 'rekap', label: 'Rekap transaksi' },
+    { key: 'biaya', label: 'Biaya & persediaan' },
+    { key: 'modal', label: 'Pengaturan modal' },
+  ]
+  const view = VIEWS.some((v) => v.key === sp.view) ? sp.view! : 'ringkasan'
   const nowIso = new Date().toISOString()
 
-  const [fin, { data: credits }, { data: costs }, { data: alloc }, { data: brands }, { data: types }, { data: versions }] = await Promise.all([
+  const [fin, { data: profiles }, { data: credits }, { data: costs }, { data: alloc }, { data: brands }, { data: types }, { data: versions }] = await Promise.all([
     loadFinance(supabase, p, d),
+    supabase.from('profiles').select('id, full_name'),
     supabase.from('credit_prices').select('rp_per_credit, effective_from').order('effective_from', { ascending: false }),
     supabase.from('brand_costs').select('brand_id, basis, credits_per_account, rp_per_voucher, effective_from').lte('effective_from', nowIso).order('effective_from', { ascending: false }),
     supabase.from('cost_allocation_settings').select('method, extra_gets_cost, effective_from').order('effective_from', { ascending: false }),
@@ -42,7 +53,8 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const creditPrev = credits?.filter((x) => x.effective_from <= nowIso)[1]
   const creditNext = credits?.filter((x) => x.effective_from > nowIso).at(-1)
   const allocNow = alloc?.find((x) => x.effective_from <= nowIso)
-  const href = (pp: Period, dd: string) => `/finance?p=${pp}&d=${dd}`
+  // Periode dan tab ikut terbawa saat berpindah; filter brand hanya untuk Rekap transaksi.
+  const href = (pp: Period, dd: string, v = view) => `/finance?p=${pp}&d=${dd}${v !== 'ringkasan' ? `&view=${v}` : ''}${v === 'rekap' && sp.brand ? `&brand=${sp.brand}` : ''}`
   const maxAbs = Math.max(1, ...fin.buckets.map((b) => Math.abs(b.net)))
   const hasNeg = fin.buckets.some((b) => b.net < 0)
   const vers = (versions ?? []) as (Rule & { voucher_type_id: string; effective_from: string })[]
@@ -65,38 +77,56 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         <a href={`/finance/export?p=${p}&d=${d}`} className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-4 text-sm font-semibold">Export CSV order</a>
       </PageHeader>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs items={PERIODS.map((x) => ({ key: x.key, label: x.label, href: href(x.key, d) }))} active={p} />
-        <div className="flex w-full items-center gap-2 sm:w-auto">
-          <Link href={href(p, shiftPeriod(p, d, -1))} aria-label="Periode sebelumnya" className="flex size-11 items-center justify-center rounded-lg border border-[#dcd2bf] bg-white font-bold">←</Link>
-          <span className="min-w-0 flex-1 text-center text-sm font-semibold sm:min-w-44 sm:flex-none">{periodLabel(p, d)}</span>
-          <Link href={href(p, shiftPeriod(p, d, 1))} aria-label="Periode berikutnya" className="flex size-11 items-center justify-center rounded-lg border border-[#dcd2bf] bg-white font-bold">→</Link>
-          <Link href={href(p, today)} className="flex min-h-11 items-center whitespace-nowrap px-2 text-sm font-semibold text-orange-700">Hari ini</Link>
+      <div data-reveal className="flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav aria-label="Jenis periode" className="flex gap-1 rounded-xl bg-cream-100 p-1">
+          {PERIODS.map((x) => (
+            <Link
+              key={x.key}
+              href={href(x.key, d)}
+              scroll={false}
+              aria-current={p === x.key ? 'page' : undefined}
+              className={`btn-press flex min-h-9 flex-1 items-center justify-center rounded-lg px-3.5 text-sm font-semibold sm:flex-none ${p === x.key ? 'bg-white text-navy-900 shadow-sm' : 'text-ink-500 hover:text-navy-900'}`}
+            >
+              {x.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="flex items-center gap-2">
+          <Link href={href(p, shiftPeriod(p, d, -1))} scroll={false} aria-label="Periode sebelumnya" className="btn-press flex size-10 items-center justify-center rounded-xl border border-cream-300 bg-white"><Icon name="chevron" className="size-4 rotate-180" /></Link>
+          <span className="flex min-w-0 flex-1 items-center justify-center gap-2 text-sm font-semibold sm:min-w-48 sm:flex-none">
+            <Icon name="calendar" className="size-4 text-ink-500" />
+            {periodLabel(p, d)}
+          </span>
+          <Link href={href(p, shiftPeriod(p, d, 1))} scroll={false} aria-label="Periode berikutnya" className="btn-press flex size-10 items-center justify-center rounded-xl border border-cream-300 bg-white"><Icon name="chevron" className="size-4" /></Link>
+          <Link href={href(p, today)} scroll={false} className="flex min-h-10 items-center whitespace-nowrap px-2 text-sm font-semibold text-orange-700">Hari ini</Link>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <Stat label="Omzet" value={rupiah(c.revenue)} sub={`${c.orders} order terkonfirmasi`} />
-        <Stat label="HPP" value={rupiah(c.merchant + c.voucherCost)} sub="merchant + modal voucher" />
-        <Stat label="Laba kotor" value={rupiah(c.gross)} sub={c.revenue ? `margin ${Math.round((c.gross / c.revenue) * 100)}%` : '—'} />
-        <Stat label="Laba bersih" value={rupiah(c.net)} sub="setelah biaya, uang saku & bonus" />
-        <Stat label="Perlu ditinjau" value={c.review} sub={c.review ? <Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link> : 'tidak ada'} />
+      <Tabs items={VIEWS.map((v) => ({ key: v.key, label: v.label, href: href(p, d, v.key) }))} active={view} />
+
+      {view === 'ringkasan' && (<>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <Stat icon="wallet" accent="mint" label="Omzet" value={rupiah(c.revenue)} sub={`${c.orders} order terkonfirmasi`} />
+        <Stat icon="box" accent="lavender" label="HPP" value={rupiah(c.merchant + c.voucherCost)} sub="merchant + modal voucher" />
+        <Stat icon="chart" accent="sky" label="Laba kotor" value={rupiah(c.gross)} sub={c.revenue ? `margin ${Math.round((c.gross / c.revenue) * 100)}%` : '—'} />
+        <Stat icon="check" accent="peach" label="Laba bersih" value={rupiah(c.net)} sub="setelah biaya, uang saku & bonus" />
+        <Stat icon="alert" accent="navy" label="Perlu ditinjau" value={c.review} sub={c.review ? <Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link> : 'tidak ada'} />
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card title="Laba bersih per periode" aside={<span className="text-xs text-ink-500">{fin.buckets.length} periode terakhir · arahkan ke batang untuk rincian</span>}>
-          <div className="flex h-56 items-stretch gap-1.5 border-b border-cream-300 pt-6" role="img" aria-label="Grafik laba bersih per periode; rincian ada di tabel di bawahnya">
+          <GrowBars className="flex h-56 items-stretch gap-1.5 border-b border-cream-300 pt-6" role="img" aria-label="Grafik laba bersih per periode; rincian ada di tabel di bawahnya">
             {fin.buckets.map((b) => {
               const h = (Math.abs(b.net) / maxAbs) * (hasNeg ? 50 : 100)
               return (
                 <div key={b.start} className="group relative flex flex-1 flex-col justify-end" tabIndex={0}>
                   <div className={`flex flex-1 flex-col ${hasNeg ? 'justify-center' : 'justify-end'}`}>
                     <div className="flex flex-col justify-end" style={{ height: hasNeg ? '50%' : '100%' }}>
-                      {b.net >= 0 && <div className="rounded-t bg-navy-700 group-hover:bg-orange-500 group-focus:bg-orange-500" style={{ height: `${hasNeg ? h * 2 : h}%`, minHeight: b.net ? 2 : 0 }} />}
+                      {b.net >= 0 && <div data-bar className="rounded-t-lg bg-gradient-to-t from-navy-700 to-lavender-500 transition-colors group-hover:from-orange-500 group-hover:to-orange-500 group-focus:from-orange-500 group-focus:to-orange-500" style={{ height: `${hasNeg ? h * 2 : h}%`, minHeight: b.net ? 2 : 0 }} />}
                     </div>
                     {hasNeg && (
                       <div className="flex flex-col justify-start border-t border-ink-500/40" style={{ height: '50%' }}>
-                        {b.net < 0 && <div className="rounded-b bg-danger-700/70" style={{ height: `${h * 2}%`, minHeight: 2 }} />}
+                        {b.net < 0 && <div data-bar="neg" className="rounded-b-lg bg-danger-700/70" style={{ height: `${h * 2}%`, minHeight: 2 }} />}
                       </div>
                     )}
                   </div>
@@ -110,7 +140,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
                 </div>
               )
             })}
-          </div>
+          </GrowBars>
           <div className="flex gap-1.5">
             {fin.buckets.map((b, i, all) => (
               // Label selang-seling bila batang banyak; periode terakhir selalu berlabel.
@@ -168,8 +198,15 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         </div>
       </Card>
 
+      </>)}
+
+      {view === 'rekap' && (
+        <FinanceRecap supabase={supabase} p={p} d={d} brand={(brands ?? []).some((b) => b.id === sp.brand) ? sp.brand : undefined} page={Number(sp.page) || 1} brands={brands ?? []} profiles={profiles ?? []} />
+      )}
+
+      {view === 'biaya' && (
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Card title="Biaya operasional">
+        <Card title="Biaya operasional (pengeluaran)">
           <ActionForm action={addExpense} className="grid grid-cols-1 gap-2 sm:grid-cols-2" resultClassName="sm:col-span-2">
             <label className={labelCls}>Tanggal<input type="date" name="date" defaultValue={today} required className={inputCls} /></label>
             <label className={labelCls}>Kategori<input name="category" required list="expense-cat" placeholder="mis. Internet" className={inputCls} /></label>
@@ -204,6 +241,9 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         </Card>
       </div>
 
+      )}
+
+      {view === 'modal' && (<>
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card title="Harga modal" aside={<Link href="/finance/brand-costs" className="text-sm font-semibold text-orange-700">Modal per Brand</Link>}>
           <p className="text-sm">
@@ -292,6 +332,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
           })}
         </Table>
       </Card>
+      </>)}
     </div>
   )
 }
