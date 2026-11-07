@@ -94,7 +94,8 @@ export default async function NewOrderPage({ searchParams }: { searchParams: Pro
   )
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5">
+    // Bulk: ruang di akhir halaman agar baris terakhir tidak tertutup panel ringkasan bawah (HP & tablet).
+    <div className={`mx-auto flex max-w-6xl flex-col gap-5 ${mode === 'bulk' ? 'pb-32 lg:pb-0' : ''}`}>
       <PageHeader eyebrow="Transaksi Order" title="Catat order baru" />
       <Tabs
         items={[

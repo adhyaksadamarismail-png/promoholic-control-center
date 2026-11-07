@@ -144,7 +144,7 @@ export function MobileNav({ logo, staff, owner, name, role, primary }: { logo: R
       const quick = reducedMotion()
       if (open) {
         gsap.fromTo(backdrop.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: quick ? 0 : 0.2 })
-        gsap.fromTo(sheet.current, { yPercent: 100 }, { yPercent: 0, duration: quick ? 0 : 0.36, ease: 'power3.out' })
+        gsap.fromTo(sheet.current, { y: 0, yPercent: 100 }, { yPercent: 0, duration: quick ? 0 : 0.36, ease: 'power3.out' })
         gsap.fromTo(sheet.current.querySelectorAll('[data-sheet-item]'), { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: quick ? 0 : 0.25, stagger: 0.015, delay: 0.08 })
       } else {
         gsap.to(backdrop.current, { autoAlpha: 0, duration: quick ? 0 : 0.18 })
@@ -232,7 +232,7 @@ export function MobileNav({ logo, staff, owner, name, role, primary }: { logo: R
             role="dialog"
             aria-modal="true"
             aria-label="Semua menu"
-            className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] translate-y-full flex-col rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl md:hidden"
+            className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl md:hidden"
           >
             <span aria-hidden className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-cream-300" />
             <div className="flex shrink-0 items-center gap-3 px-5 pb-3 pt-3">

@@ -25,10 +25,13 @@ export function Tabs({ items, active }: { items: TabItem[]; active: string }) {
 
   const { contextSafe } = useGSAP(
     () => {
-      place(root.current?.querySelector<HTMLElement>('[aria-current="page"]'), false)
-      const onResize = () => place(root.current?.querySelector<HTMLElement>('[aria-current="page"]'), false)
-      window.addEventListener('resize', onResize)
-      return () => window.removeEventListener('resize', onResize)
+      const sync = () => place(root.current?.querySelector<HTMLElement>('[aria-current="page"]'), false)
+      sync()
+      // Ukur ulang saat font selesai dimuat atau lebar berubah, supaya penanda selalu pas di bawah tab aktif.
+      document.fonts?.ready.then(sync)
+      const ro = new ResizeObserver(sync)
+      if (root.current) ro.observe(root.current)
+      return () => ro.disconnect()
     },
     { scope: root, dependencies: [active] },
   )

@@ -139,7 +139,7 @@ export function BulkOrder({ brands, accounts, types }: { brands: Brand[]; accoun
   )
 
   return (
-    <div className="grid grid-cols-1 items-start gap-4 pb-28 lg:grid-cols-[minmax(0,1fr)_320px] lg:pb-0">
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-w-0 flex-col gap-4">
         {saved && (
           <section role="status" className="animate-enter flex flex-col gap-2 rounded-2xl border border-success-700 bg-success-100 p-4 sm:p-5">
