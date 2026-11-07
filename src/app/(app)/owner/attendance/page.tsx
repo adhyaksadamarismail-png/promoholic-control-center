@@ -5,6 +5,7 @@ import { ABSENCE, type AbsenceKind } from '@/lib/attendance'
 import { addDays, dateLabel, isYmd, jktDate, weekStart } from '@/lib/format'
 import { AutoRefresh } from '@/components/auto-refresh'
 import { StatusCard } from './status-card'
+import { RecapTab } from './recap'
 import { AttendanceTab, BenefitTab, EarningsTab, PayrollTab, RulesTab, ScheduleTab, StaffTab, type Profile } from './sections'
 
 export const dynamic = 'force-dynamic'
@@ -12,7 +13,8 @@ export const dynamic = 'force-dynamic'
 const TABS = [
   { key: 'absensi', label: 'Absensi' },
   { key: 'uang-saku', label: 'Uang saku & bonus' },
-  { key: 'rekap', label: 'Rekap mingguan' },
+  { key: 'laporan', label: 'Rekap absensi' },
+  { key: 'rekap', label: 'Rekap & pembayaran' },
   { key: 'benefit', label: 'Benefit KopKen' },
   { key: 'jadwal', label: 'Jadwal' },
   { key: 'aturan', label: 'Aturan' },
@@ -48,6 +50,7 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
       <PageHeader eyebrow={`Hanya owner · minggu ${dateLabel(week)} – ${dateLabel(end)}`} title="Absensi, Uang Saku & Staf">
+        {tab !== 'laporan' && (<>
         <Link href={href(tab, addDays(week, -7))} aria-label="Minggu lalu" className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-3.5 text-sm font-semibold">
           ←<span className="hidden sm:inline">&nbsp;Minggu lalu</span>
         </Link>
@@ -57,15 +60,17 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
         <Link href={href(tab, addDays(week, 7))} aria-label="Minggu depan" className="flex min-h-11 items-center rounded-lg border border-[#dcd2bf] bg-white px-3.5 text-sm font-semibold">
           <span className="hidden sm:inline">Minggu depan&nbsp;</span>→
         </Link>
+        </>)}
       </PageHeader>
 
-      <div className="flex flex-wrap gap-3">
-        <Stat label="Shift minggu ini" value={list.length} sub={`${list.filter((s) => s.status === 'completed').length} selesai`} />
-        <Stat label="Perlu diperiksa" value={present.filter((s) => s.needs_review || s.status === 'incomplete').length} sub="ditandai sistem" />
-        <Stat label="Menunggu persetujuan" value={pendingEarnings ?? 0} sub="uang saku / bonus" />
-        <Stat label="Benefit terverifikasi" value={`${claimed} / ${present.length}`} sub="1 cup per shift" />
-        <Stat label="Pengajuan koreksi" value={pendingApprovals ?? 0} sub={<Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link>} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <Stat icon="calendar" label="Shift minggu ini" value={list.length} sub={`${list.filter((s) => s.status === 'completed').length} selesai`} />
+        <Stat icon="alert" label="Perlu diperiksa" value={present.filter((s) => s.needs_review || s.status === 'incomplete').length} sub="ditandai sistem" />
+        <Stat icon="wallet" label="Menunggu persetujuan" value={pendingEarnings ?? 0} sub="uang saku / bonus" />
+        <Stat icon="coffee" label="Benefit terverifikasi" value={`${claimed} / ${present.length}`} sub="1 cup per shift" />
+        <Stat icon="shield" label="Pengajuan koreksi" value={pendingApprovals ?? 0} sub={<Link href="/approvals" className="font-semibold text-orange-700">Buka Persetujuan</Link>} />
         <Stat
+          icon="user"
           label="Ketidakhadiran"
           value={list.length - present.length}
           sub={<span className="flex flex-wrap gap-1">{(Object.keys(ABSENCE) as AbsenceKind[]).map((k) => <Pill key={k} tone={ABSENCE[k].tone}>{ABSENCE[k].label} {absentCount(k)}</Pill>)}</span>}
@@ -79,6 +84,7 @@ export default async function OwnerAttendancePage({ searchParams }: { searchPara
 
       {tab === 'absensi' && <AttendanceTab {...props} />}
       {tab === 'uang-saku' && <EarningsTab {...props} />}
+      {tab === 'laporan' && <RecapTab supabase={supabase} profiles={props.profiles} sp={sp} week={week} />}
       {tab === 'rekap' && <PayrollTab {...props} />}
       {tab === 'benefit' && <BenefitTab {...props} />}
       {tab === 'jadwal' && <ScheduleTab {...props} />}

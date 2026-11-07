@@ -3,6 +3,8 @@ import { AutoRefresh } from '@/components/auto-refresh'
 import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, inputCls, labelCls } from '@/components/ui'
+import { Icon } from '@/components/icons'
+import { Progress } from '@/components/motion'
 import { addDays, dateLabel, isoToJktLocal, jktDate, jktDateTime, jktTime, minutesLabel, rupiah, weekStart } from '@/lib/format'
 import {
   ACTION_LABEL,
@@ -167,7 +169,7 @@ export default async function AttendancePage() {
         const steps: AttendanceKind[] = ['clock_in', 'break_start', 'break_end', 'clock_out']
         return (
           <div key={s.id} className="flex flex-col gap-4">
-            <section className="flex flex-col gap-4 rounded-2xl bg-navy-900 p-5 text-white">
+            <section data-reveal className="flex flex-col gap-4 rounded-2xl bg-navy-900 p-5 text-white shadow-[var(--shadow-lift)]">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-xs text-[#c5cbd9]">{s.code}</span>
@@ -191,16 +193,22 @@ export default async function AttendancePage() {
                 {steps.map((k) => {
                   const at = k === 'break_start' || k === 'break_end' ? eff.filter((e) => e.kind === k).at(-1)?.at : firstOf(eff, k)
                   return (
-                    <li key={k} className={`flex flex-col gap-0.5 rounded-xl px-3 py-2 ${at ? 'bg-navy-700' : 'bg-navy-800'}`}>
-                      <span className="text-xs text-[#c5cbd9]">{KIND_LABEL[k]}</span>
+                    <li key={k} className={`flex flex-col gap-0.5 rounded-xl px-3 py-2.5 transition-colors ${at ? 'bg-navy-700 ring-1 ring-orange-500/40' : 'bg-navy-800'}`}>
+                      <span className="flex items-center gap-1.5 text-xs text-[#c5cbd9]">
+                        <span className={`flex size-4 items-center justify-center rounded-full ${at ? 'bg-orange-500 text-navy-900' : 'border border-[#5b6a8c]'}`}>
+                          {at && <Icon name="check" className="size-3" />}
+                        </span>
+                        {KIND_LABEL[k]}
+                      </span>
                       <span className="font-display text-base font-semibold">{at ? jktTime(at) : '—'}</span>
                     </li>
                   )
                 })}
               </ol>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <span className="font-display text-3xl font-bold">{minutesLabel(net)}</span>
+                {s.kind === 'regular' && <Progress value={(net / target) * 100} className="bg-orange-500" label="Capaian target jam kerja" />}
                 <span className="text-sm text-[#c5cbd9]">
                   kerja bersih{brk ? ` (istirahat ${minutesLabel(brk)})` : ''}{off ? ` · Off/Izin ${minutesLabel(off)}` : ''}
                   {s.kind === 'regular' && ` · target ${minutesLabel(target)} · tercapai ${Math.min(100, Math.round((net / target) * 100))}%`}
