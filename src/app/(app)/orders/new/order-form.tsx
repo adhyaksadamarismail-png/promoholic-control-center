@@ -5,6 +5,8 @@ import { useHydrated } from '@/components/action-form'
 import { startTransition, useActionState, useMemo, useState } from 'react'
 import { currentVersion, orderEstimate, ruleLabel, stockLevel, type Rule } from '@/lib/inventory'
 import { createOrder } from './actions'
+import { Icon } from '@/components/icons'
+import { Stagger } from '@/components/motion'
 import { baperanIdentity, baperanStatus } from '@/lib/baperan'
 
 type Brand = { id: string; name: string }
@@ -33,7 +35,7 @@ function StockDot({ level }: { level: keyof typeof STOCK }) {
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
+    <section data-reveal className="flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 sm:p-5">
       <h2 className="flex items-center gap-2.5 font-display text-base font-semibold">
         <span className="flex size-7 items-center justify-center rounded-full bg-navy-900 text-sm text-white">{n}</span>
         {title}
@@ -75,6 +77,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
   const [status, setStatus] = useState<'confirmed' | 'draft'>('confirmed')
   const [sent, setSent] = useState<{ account: string; voucher: string } | null>(null)
   const [ack, setAck] = useState<typeof state>(null) // hasil yang sudah ditutup lewat "Order berikutnya"
+  const [accQuery, setAccQuery] = useState('')
 
   const typeOf = (id: string) => types.find((t) => t.id === id)
   const availByAccount = useMemo(() => {
@@ -83,6 +86,9 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
     return m
   }, [vouchers])
   const brandAccounts = accounts.filter((a) => a.brand_id === brand && availByAccount.has(a.id))
+  // Pencarian ID akun hanya menyaring tampilan; akun yang sudah dipilih tetap terlihat.
+  const q = accQuery.trim().toUpperCase()
+  const shownAccounts = q ? brandAccounts.filter((a) => a.id === accountId || a.account_code.toUpperCase().includes(q) || (a.account_number ?? '').includes(q)) : brandAccounts
   const account = accounts.find((a) => a.id === accountId) ?? null
   const accVouchers = (account ? availByAccount.get(account.id) ?? [] : []).sort(
     (a, b) => (typeOf(a.voucher_type_id)?.sort_order ?? 0) - (typeOf(b.voucher_type_id)?.sort_order ?? 0) || a.code.localeCompare(b.code),
@@ -156,8 +162,8 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
                   type="button"
                   key={b.id}
                   aria-pressed={brand === b.id}
-                  onClick={() => { setBrand(b.id); setAccountId(null); setVoucherId(null) }}
-                  className={`flex min-h-12 flex-col items-start justify-center rounded-xl border px-3.5 py-1.5 text-left ${brand === b.id ? 'border-navy-900 bg-navy-900 text-white' : 'border-[#dcd2bf] bg-white'}`}
+                  onClick={() => { setBrand(b.id); setAccountId(null); setVoucherId(null); setAccQuery('') }}
+                  className={`btn-press flex min-h-12 min-w-[6.5rem] flex-col items-start justify-center rounded-xl border px-3.5 py-1.5 text-left ${brand === b.id ? 'border-navy-900 bg-navy-900 text-white shadow-[0_8px_18px_-10px_rgb(21_35_66/0.7)]' : 'border-[#dcd2bf] bg-white hover:border-navy-700'}`}
                 >
                   <span className="text-sm font-semibold">{b.name}</span>
                   <span className={`text-xs ${brand === b.id ? 'text-[#c5cbd9]' : 'text-ink-500'}`}>{n} tersedia</span>
@@ -175,16 +181,33 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
               <span className="flex items-center gap-1.5"><StockDot level="menipis" />Sisa ≤2 voucher</span>
             </p>
           )}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {brandAccounts.map((a) => {
+          {brandAccounts.length > 6 && (
+            <label className="relative">
+              <span className="sr-only">Cari ID akun</span>
+              <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-500" />
+              <input
+                type="search"
+                value={accQuery}
+                onChange={(e) => setAccQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} // Enter tidak mengirim order
+                placeholder="Cari ID akun…"
+                autoComplete="off"
+                className="min-h-11 w-full rounded-xl border border-[#dcd2bf] bg-white pl-9 pr-3 text-base"
+              />
+            </label>
+          )}
+          {q && !shownAccounts.length && <p className="text-sm text-ink-500">Tidak ada ID akun yang cocok dengan “{accQuery}”.</p>}
+          <Stagger watch={`${brand}|${q}`} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {shownAccounts.map((a) => {
               const level = a.inventory === 'baperan' ? null : stockLevel(availByAccount.get(a.id)?.length ?? 0)
               return (
               <button
                 type="button"
                 key={a.id}
+                data-stagger
                 aria-pressed={accountId === a.id}
                 onClick={() => { setAccountId(a.id); setVoucherId(null) }}
-                className={`flex flex-col items-start rounded-xl border px-3 py-2 text-left ${accountId === a.id ? 'border-orange-500 bg-orange-100' : 'border-[#dcd2bf] bg-white'}`}
+                className={`btn-press flex flex-col items-start rounded-xl border px-3 py-2.5 text-left ${accountId === a.id ? 'border-orange-500 bg-orange-100 ring-2 ring-orange-500/20' : 'border-[#dcd2bf] bg-white hover:border-navy-700'}`}
               >
                 <span className="flex w-full items-center justify-between gap-2">
                   <span className="min-w-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]">{a.inventory === 'baperan' ? baperanIdentity(a).label : a.account_code}</span>
@@ -204,7 +227,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
               </button>
               )
             })}
-          </div>
+          </Stagger>
         </Step>
 
         <Step n={3} title="Customer & referensi">

@@ -16,7 +16,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="id">
+    <html lang="id" suppressHydrationWarning>
+      <head>
+        {/* Sembunyikan kartu yang akan dianimasikan sebelum tampil pertama (hindari kedip). Batas 2,5 dtk bila JS gagal. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "if(!matchMedia('(prefers-reduced-motion: reduce)').matches){var d=document.documentElement;d.classList.add('js-motion');setTimeout(function(){d.classList.add('motion-ready')},2500)}",
+          }}
+        />
+      </head>
       <body className={`${inter.variable} ${poppins.variable} font-sans antialiased`}>{children}</body>
     </html>
   )

@@ -11,7 +11,7 @@
   --color-orange-100: #ffebd8;
   --color-cream-50: #fcf9f3;
   --color-cream-100: #faf5eb;
-  --color-cream-300: #eadfcb;
+  --color-cream-300: #ece4d6;
   --color-ink-500: #5b6478;
   --color-success-700: #0e6245;
   --color-success-100: #e7f4ee;
@@ -19,12 +19,29 @@
   --color-warning-100: #fef1de;
   --color-danger-700: #b42318;
   --color-danger-100: #fdecea;
+  /* Aksen pastel: dipakai hemat untuk ikon, kartu statistik, dan aksi cepat. */
+  --color-lavender-100: #efeafd;
+  --color-lavender-500: #7c6ad6;
+  --color-mint-100: #e4f6ee;
+  --color-mint-500: #2f9e72;
+  --color-peach-100: #ffefe3;
+  --color-peach-500: #e5752a;
+  --color-sky-100: #e6effc;
+  --color-sky-500: #3b6fc4;
+  /* Sudut lebih lembut dan konsisten di semua kartu, input, dan tombol. */
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+  --shadow-card: 0 1px 2px rgb(21 35 66 / 0.04), 0 6px 20px -8px rgb(21 35 66 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(21 35 66 / 0.05), 0 14px 32px -12px rgb(21 35 66 / 0.16);
   --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-display: var(--font-poppins), var(--font-inter), sans-serif;
 }
 
 body {
-  background: var(--color-cream-100);
+  background: radial-gradient(1200px 600px at 100% -10%, #f3eefc 0%, transparent 55%), var(--color-cream-100);
+  background-attachment: fixed;
   color: var(--color-navy-900);
   font-variant-numeric: tabular-nums;
 }
@@ -70,6 +87,9 @@ main summary {
   input[type='checkbox'], input[type='radio'] { accent-color: var(--color-orange-500); transition: transform 120ms; }
   input[type='checkbox']:active, input[type='radio']:active { transform: scale(0.9); }
   input, select, textarea { transition: border-color 150ms, box-shadow 150ms; }
+  :where(input:not([type='checkbox'], [type='radio'], [type='file']), select, textarea):focus-visible {
+    outline: none; border-color: var(--color-orange-500); box-shadow: 0 0 0 3px rgb(255 133 27 / 0.18);
+  }
   /* Bagian lipat (Koreksi, Riwayat, Ubah data): isi muncul halus. */
   details[open] > :not(summary) { animation: enter 180ms var(--ease-out-soft); }
   summary { transition: color 150ms; }
@@ -87,9 +107,17 @@ main summary {
   .btn-press { transition: background-color 150ms, border-color 150ms, color 150ms, transform 120ms var(--ease-out-soft); }
   .btn-press:active { transform: scale(0.97); }
   /* Kartu: bayangan ringan saat disorot; kartu yang bisa diklik sedikit terangkat. */
-  .card-hover { transition: box-shadow 200ms, border-color 200ms, transform 200ms var(--ease-out-soft); }
-  .card-hover:hover { box-shadow: 0 4px 14px rgb(21 35 66 / 0.07); }
-  a.card-hover:hover { transform: translateY(-1px); border-color: #dcd2bf; }
+  .card-hover { transition: box-shadow 220ms, border-color 220ms, transform 220ms var(--ease-out-soft); }
+  .card-hover:hover { box-shadow: var(--shadow-lift); }
+  a.card-hover:hover { transform: translateY(-2px); border-color: #dcd2bf; }
+  /* Permukaan putih (kartu, panel): bayangan lembut seragam tanpa menulis ulang setiap halaman. */
+  main :where(.rounded-2xl.bg-white, .rounded-3xl.bg-white) { box-shadow: var(--shadow-card); }
+  /* Ikon dalam ubin pastel. */
+  .icon-tile { display: inline-flex; align-items: center; justify-content: center; border-radius: 0.875rem; }
+  /* Penanda tab aktif yang bergeser (dianimasikan GSAP). */
+  .tab-indicator { position: absolute; z-index: 0; border-radius: 0.625rem; background: var(--color-navy-900); box-shadow: 0 4px 12px -4px rgb(21 35 66 / 0.45); }
+  /* Elemen yang akan dimunculkan GSAP disembunyikan dulu hanya bila JS aktif, supaya tidak berkedip. */
+  .js-motion:not(.motion-ready) [data-reveal] { opacity: 0; }
   .spinner {
     display: inline-block; width: 1em; height: 1em; border-radius: 9999px;
     border: 2px solid currentColor; border-right-color: transparent; animation: spin 700ms linear infinite;
@@ -111,6 +139,13 @@ main summary {
   .account-list tr:has(input[data-row-check='leaving']), .account-list li:has(input[data-row-check='leaving']) { animation: row-leave 220ms ease-in both; }
   /* Gulir internal sidebar: tipis dan menyatu dengan warna navy. */
   .sidebar-scroll { scrollbar-width: thin; scrollbar-color: var(--color-navy-700) transparent; }
+}
+
+/* Sidebar tablet yang diciutkan: hanya ikon. Di layar lebar (xl) selalu terbuka penuh. */
+@media (min-width: 768px) and (max-width: 1279.98px) {
+  .side-nav[data-collapsed] { width: 76px; }
+  .side-nav[data-collapsed] .sidebar-label { display: none; }
+  .side-nav[data-collapsed] nav a { justify-content: center; padding-inline: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

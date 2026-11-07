@@ -72,7 +72,7 @@ export function BulkAccountProvider({ rows, mode, children }: { rows: Row[]; mod
 
   return (
     <Ctx.Provider value={{ selected, leaving, toggle }}>
-      <section className="sticky top-0 z-10 flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 shadow-sm" aria-label={mode === 'archive' ? 'Hapus akun massal' : 'Pulihkan akun massal'}>
+      <section className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-10 md:top-3 flex flex-col gap-3 rounded-2xl border border-cream-300 bg-white p-4 shadow-sm" aria-label={mode === 'archive' ? 'Hapus akun massal' : 'Pulihkan akun massal'}>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
             <input type="checkbox" disabled={!hydrated || busy || !rows.length} checked={allOn}
@@ -119,7 +119,7 @@ export function BulkAccountProvider({ rows, mode, children }: { rows: Row[]; mod
       </section>
       {children}
       {toast && (
-        <div role="status" className="animate-enter fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 mx-auto w-fit max-w-[calc(100vw-2rem)] rounded-xl bg-navy-900 px-4 py-3 text-sm font-semibold text-white shadow-lg">
+        <div role="status" className="animate-enter fixed inset-x-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 md:bottom-[calc(1rem+env(safe-area-inset-bottom))] mx-auto w-fit max-w-[calc(100vw-2rem)] rounded-xl bg-navy-900 px-4 py-3 text-sm font-semibold text-white shadow-lg">
           {toast}
         </div>
       )}

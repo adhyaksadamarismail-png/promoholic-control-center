@@ -98,8 +98,8 @@ export default async function NewOrderPage({ searchParams }: { searchParams: Pro
       <PageHeader eyebrow="Transaksi Order" title="Catat order baru" />
       <Tabs
         items={[
-          { key: 'satuan', label: 'Transaksi Satuan', href: '/orders/new' },
-          { key: 'bulk', label: 'Bulk Transaksi', href: '/orders/new?mode=bulk' },
+          { key: 'satuan', label: 'Order Satuan', href: '/orders/new' },
+          { key: 'bulk', label: 'Bulk Order', href: '/orders/new?mode=bulk' },
         ]}
         active={mode}
       />

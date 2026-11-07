@@ -274,7 +274,7 @@ export function BulkOrder({ brands, accounts, types }: { brands: Brand[]; accoun
       </aside>
       {/* Portal: animasi halaman (animate-enter) meninggalkan transform yang membuat `fixed` ikut menggulir bersama konten. */}
       {hydrated && createPortal(
-        <div className="fixed inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-navy-700 bg-navy-900 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] text-white lg:hidden">
+        <div className="fixed inset-x-0 bottom-[calc(3.6rem+env(safe-area-inset-bottom))] z-30 flex flex-col gap-2 rounded-t-2xl bg-navy-900 p-3 text-white shadow-[0_-8px_24px_-12px_rgb(21_35_66/0.5)] md:bottom-0 md:rounded-none md:pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:hidden">
           <details>
             <summary className="flex min-h-9 cursor-pointer items-center justify-between text-sm font-semibold">
               <span>Ringkasan Bulk</span>

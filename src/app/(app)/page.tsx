@@ -4,6 +4,10 @@ import { getViewer } from '@/lib/auth'
 import { Icon, type IconName } from '@/components/icons'
 import { WEEKDAYS, addDays, dateLabel, isYmd, jktDate, jktTime, rupiah, weekStart } from '@/lib/format'
 import { ABSENCE, effectiveEvents, firstOf, shiftLabel, type AbsenceKind, type AttendanceEvent } from '@/lib/attendance'
+import { loadTypeSummary } from '@/lib/stock'
+import { ACCENTS, type Accent } from '@/components/ui'
+import { CountUp, Progress } from '@/components/motion'
+import { TrendChart, type TrendPoint } from './trend-chart'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,7 +79,7 @@ function attendanceLine(s: Shift) {
   return outAt ? `Masuk ${jktTime(inAt)} · Pulang ${jktTime(outAt)}` : `Masuk sudah dicatat · ${jktTime(inAt)}`
 }
 
-const card = 'rounded-2xl border border-cream-300 bg-white p-4 shadow-[0_1px_2px_rgba(21,35,66,0.05)] sm:p-5'
+const card = 'rounded-2xl border border-cream-300 bg-white p-4 sm:p-5'
 
 function SectionTitle({ title, href, link = 'Lihat semua' }: { title: string; href?: string; link?: string }) {
   return (
@@ -125,30 +129,46 @@ function ShiftCard({ s, now, href }: { s: Shift; now: number; href: string | nul
   )
 }
 
-type Action = { href: string; title: string; desc: string; icon: IconName; tint: string; badge?: number }
+type Action = { href: string; title: string; desc: string; icon: IconName; accent: Accent; badge?: number }
 
 function QuickAction({ a }: { a: Action }) {
   return (
-    <Link href={a.href} className={`group flex min-h-[5.5rem] items-start gap-3 rounded-2xl border p-3.5 transition-colors ${a.tint}`}>
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-navy-900 shadow-sm">
-        <Icon name={a.icon} className="size-5" />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-navy-900">
-          {a.title}
-          {!!a.badge && <span className="rounded-full bg-orange-500 px-1.5 text-[11px] font-bold text-navy-900">{a.badge}</span>}
+    <Link
+      href={a.href}
+      data-stagger
+      className="card-hover group flex min-h-[6.5rem] flex-col justify-between gap-2 rounded-2xl border border-cream-300 bg-white p-3.5 hover:border-[#dcd2bf]"
+    >
+      <span className="flex items-start justify-between gap-2">
+        <span className={`icon-tile size-11 transition-transform duration-200 group-hover:scale-105 ${ACCENTS[a.accent]}`}>
+          <Icon name={a.icon} className="size-5" />
         </span>
+        {!!a.badge && <span className="rounded-full bg-orange-500 px-1.5 text-[11px] font-bold leading-5 text-navy-900">{a.badge}</span>}
+      </span>
+      <span className="flex flex-col gap-0.5">
+        <span className="text-sm font-semibold text-navy-900">{a.title}</span>
         <span className="text-xs leading-snug text-ink-500">{a.desc}</span>
       </span>
-      <Icon name="chevron" className="mt-2.5 size-4 shrink-0 text-ink-500 transition-transform group-hover:translate-x-0.5" />
     </Link>
+  )
+}
+
+function BigStat({ icon, accent, label, value, sub }: { icon: IconName; accent: Accent; label: string; value: React.ReactNode; sub?: React.ReactNode }) {
+  return (
+    <div data-reveal className="card-hover flex min-w-0 flex-col gap-2 rounded-2xl border border-cream-300 bg-white p-4">
+      <span className={`icon-tile size-10 ${ACCENTS[accent]}`}>
+        <Icon name={icon} className="size-5" />
+      </span>
+      <span className="text-sm text-ink-500">{label}</span>
+      <span className="break-words font-display text-xl font-bold leading-tight sm:text-2xl">{value}</span>
+      {sub && <span className="text-xs leading-snug text-ink-500">{sub}</span>}
+    </div>
   )
 }
 
 function Metric({ icon, value, label, sub }: { icon: IconName; value: React.ReactNode; label: string; sub?: React.ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-xl border border-cream-300 bg-white p-3.5">
-      <span className="flex size-8 items-center justify-center rounded-lg bg-orange-100 text-orange-700">
+      <span className="icon-tile size-8 bg-peach-100 text-peach-500">
         <Icon name={icon} className="size-4" />
       </span>
       <span className="mt-1 break-words font-display text-lg font-bold leading-tight sm:text-xl">{value}</span>
@@ -220,6 +240,36 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const omzet = confirmed.reduce((a, o) => a + Number(o.sell_price), 0)
   const gross = confirmed.reduce((a, o) => a + Number(o.gross_profit), 0)
 
+  // Stok voucher per brand: hanya akun aktif, dari voucher yang tercatat (sama dengan halaman Stok).
+  const sevenStart = addDays(today, -6)
+  const [stockTypes, { data: brandRows }, { data: weekOrders }] = await Promise.all([
+    loadTypeSummary(supabase),
+    supabase.from('brands').select('id, name').order('name'),
+    isOwner
+      ? supabase.from('orders').select('sell_price, net_profit, created_at').eq('status', 'confirmed').gte('created_at', `${sevenStart}T00:00:00+07:00`)
+      : Promise.resolve({ data: [] as { sell_price: number; net_profit: number; created_at: string }[] }),
+  ])
+  const brandStock = (brandRows ?? [])
+    .map((b) => {
+      const t = stockTypes.filter((x) => x.brand_id === b.id && x.grp === 'main')
+      const available = t.reduce((a, x) => a + x.available, 0)
+      const total = t.reduce((a, x) => a + x.total, 0)
+      return { id: b.id, name: b.name, available, total }
+    })
+    .sort((a, b) => b.available - a.available)
+  const trend: TrendPoint[] = Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(sevenStart, i)
+    const rows = (weekOrders ?? []).filter((o) => jktDate(o.created_at) === d)
+    return {
+      day: d,
+      label: WEEKDAYS[(new Date(`${d}T12:00:00+07:00`).getUTCDay() + 6) % 7],
+      omzet: rows.reduce((a, o) => a + Number(o.sell_price), 0),
+      laba: rows.reduce((a, o) => a + Number(o.net_profit), 0),
+      orders: rows.length,
+    }
+  })
+  const netToday = trend.at(-1)?.laba ?? 0
+
   let ownerInfo: { approvals: number; benefits: number; earnings: number; used: number; review: number; accountsReview: number } | null = null
   let activities: Activity[] = []
   if (isOwner) {
@@ -286,21 +336,20 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       .slice(0, 7)
   }
 
-  const navyTint = 'border-[#d6dcea] bg-navy-100/60 hover:bg-navy-100'
-  const orangeTint = 'border-[#f5d8bd] bg-orange-100/70 hover:bg-orange-100'
   const actions: Action[] = isOwner
     ? [
-        { href: '/finance', title: 'Keuangan', desc: 'Laba rugi, biaya & harga modal', icon: 'chart', tint: navyTint },
-        { href: '/stock', title: 'Stok & Restock', desc: 'Cek stok dan riwayat restock', icon: 'box', tint: orangeTint },
-        { href: '/approvals', title: 'Persetujuan', desc: 'Tinjauan order, pembatalan & koreksi', icon: 'shield', tint: navyTint, badge: ownerInfo?.approvals },
-        { href: '/owner/attendance?tab=benefit&status=pending', title: 'Absensi & Staf', desc: 'Uang saku, rekap & verifikasi benefit', icon: 'calendar', tint: orangeTint, badge: ownerInfo?.benefits },
-        { href: '/panel', title: 'Panel Admin', desc: 'Restock akun & voucher', icon: 'settings', tint: navyTint },
-        { href: '/vm', title: 'Virtual Machine', desc: 'Akun per device (khusus owner)', icon: 'monitor', tint: orangeTint },
+        { href: '/orders/new', title: 'Order Satuan', desc: 'Catat satu transaksi', icon: 'cart', accent: 'peach' },
+        { href: '/orders/new?mode=bulk', title: 'Bulk Order', desc: 'Banyak transaksi sekaligus', icon: 'layers', accent: 'lavender' },
+        { href: '/panel', title: 'Restock Voucher', desc: 'Akun & voucher baru', icon: 'restock', accent: 'mint' },
+        { href: '/approvals', title: 'Persetujuan', desc: 'Tinjauan & koreksi', icon: 'shield', accent: 'sky', badge: ownerInfo?.approvals },
+        { href: '/finance', title: 'Keuangan', desc: 'Laba rugi & modal', icon: 'chart', accent: 'navy' },
+        { href: '/owner/attendance?tab=benefit&status=pending', title: 'Absensi & Staf', desc: 'Uang saku & benefit', icon: 'clock', accent: 'peach', badge: ownerInfo?.benefits },
       ]
     : [
-        { href: '/attendance', title: 'Absensi & Benefit', desc: 'Catat absensi dan ajukan benefit KopKen', icon: 'calendar', tint: orangeTint },
-        { href: '/orders/new', title: 'Catat Order', desc: 'Input transaksi order hari ini', icon: 'receipt', tint: navyTint },
-        { href: '/accounts', title: 'Daftar Akun', desc: 'Lihat akun & voucher tersedia', icon: 'user', tint: 'border-cream-300 bg-white hover:bg-cream-50' },
+        { href: '/orders/new', title: 'Order Satuan', desc: 'Catat satu transaksi', icon: 'cart', accent: 'peach' },
+        { href: '/orders/new?mode=bulk', title: 'Bulk Order', desc: 'Banyak transaksi sekaligus', icon: 'layers', accent: 'lavender' },
+        { href: '/attendance', title: 'Absensi & Benefit', desc: 'Absensi & benefit KopKen', icon: 'calendar', accent: 'mint' },
+        { href: '/accounts', title: 'Daftar Akun', desc: 'Akun & voucher tersedia', icon: 'user', accent: 'sky' },
       ]
 
   const dateLong = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'full' }).format(new Date())
@@ -311,28 +360,60 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
-      <header className="flex flex-col gap-1">
-        <span className="text-sm text-ink-500">{dateLong}</span>
-        <h1 className="font-display text-[1.75rem] font-bold leading-tight tracking-tight">Halo, {firstName}</h1>
-        <p className="text-sm text-ink-500">
-          {isOwner ? 'Ringkasan operasional Promo.Holic hari ini.' : myToday.length ? 'Semangat untuk shift hari ini!' : 'Tidak ada shift hari ini. Selamat beristirahat!'}
-        </p>
+      <header data-reveal className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-display text-[1.75rem] font-bold leading-tight tracking-tight">Halo, {firstName} 👋</h1>
+          <p className="text-sm text-ink-500">
+            {isOwner ? 'Berikut ringkasan operasional Promo.Holic hari ini.' : myToday.length ? 'Semangat untuk shift hari ini!' : 'Tidak ada shift hari ini. Selamat beristirahat!'}
+          </p>
+        </div>
+        <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-cream-300 bg-white px-3.5 text-sm font-semibold shadow-[var(--shadow-card)]">
+          <Icon name="calendar" className="size-4 text-ink-500" />
+          {dateLong}
+        </span>
       </header>
 
-      {/* HP & tablet: satu kolom berurutan (order-*). Desktop lebar: dua kolom — kiri shift, aksi, jadwal; kanan ringkasan, aktivitas. */}
+      {isOwner && (
+        <section aria-label="Ringkasan hari ini" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <BigStat
+            icon="cart"
+            accent="lavender"
+            label="Total order"
+            value={<CountUp value={confirmed.length} />}
+            sub={(orders ?? []).length > confirmed.length ? `+${(orders ?? []).length - confirmed.length} draft/batal` : 'terkonfirmasi hari ini'}
+          />
+          <BigStat icon="wallet" accent="mint" label="Omzet" value={<CountUp value={omzet} format="rupiah" />} sub="harga jual order terkonfirmasi" />
+          <BigStat
+            icon="chart"
+            accent="peach"
+            label="Laba bersih order"
+            value={<CountUp value={netToday} format="rupiah" />}
+            sub={`laba kotor ${rupiah(gross)} · sebelum uang saku & bonus`}
+          />
+          <BigStat icon="tag" accent="sky" label="Voucher terpakai" value={<CountUp value={ownerInfo?.used ?? 0} />} sub="dari histori stok hari ini" />
+        </section>
+      )}
+
+      {/* HP & tablet: satu kolom berurutan (order-*). Desktop lebar: dua kolom. */}
       <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] xl:items-start">
         <div className="contents xl:flex xl:flex-col xl:gap-5">
-          <section className={`${card} order-1 flex flex-col gap-3`}>
+          <section data-reveal className={`${card} order-1 flex flex-col gap-3`}>
             {isOwner && !myToday.length ? (
               <>
                 <SectionTitle title="Perlu tindakan owner" href="/approvals" link="Persetujuan" />
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {[
                     { href: '/owner/attendance?tab=benefit&status=pending', n: ownerInfo?.benefits ?? 0, label: 'Benefit menunggu verifikasi', icon: 'coffee' as const },
                     { href: '/approvals', n: ownerInfo?.approvals ?? 0, label: 'Pengajuan menunggu keputusan', icon: 'shield' as const },
                     { href: '/owner/attendance?tab=uang-saku', n: ownerInfo?.earnings ?? 0, label: 'Uang saku / bonus menunggu', icon: 'wallet' as const },
+                    {
+                      href: '/approvals',
+                      n: (ownerInfo?.review ?? 0) + (ownerInfo?.accountsReview ?? 0),
+                      label: `Perlu diperiksa · ${ownerInfo?.review ?? 0} order, ${ownerInfo?.accountsReview ?? 0} akun`,
+                      icon: 'alert' as const,
+                    },
                   ].map((t) => (
-                    <Link key={t.href} href={t.href} className="flex items-center gap-3 rounded-xl bg-navy-900 p-3.5 text-white">
+                    <Link key={t.label} href={t.href} className="btn-press flex items-center gap-3 rounded-xl bg-navy-900 p-3.5 text-white hover:bg-navy-800">
                       <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${t.n ? 'bg-orange-500 text-navy-900' : 'bg-white/10 text-[#c5cbd9]'}`}>
                         <Icon name={t.icon} className="size-5" />
                       </span>
@@ -356,16 +437,23 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             )}
           </section>
 
-          <section className="order-2 flex flex-col gap-3">
-            <SectionTitle title="Aksi cepat" />
-            <div className={`grid grid-cols-1 gap-2.5 ${isOwner ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2' : 'sm:grid-cols-3'}`}>
+          <section data-reveal className="order-2 flex flex-col gap-3">
+            <SectionTitle title="Transaksi cepat" />
+            <div className={`grid grid-cols-2 gap-2.5 ${isOwner ? 'sm:grid-cols-3' : 'sm:grid-cols-4 xl:grid-cols-2'}`}>
               {actions.map((a) => (
                 <QuickAction key={a.href} a={a} />
               ))}
             </div>
           </section>
 
-          <section className={`${card} order-4 flex flex-col gap-3`}>
+          {isOwner && (
+            <section data-reveal className={`${card} order-3 flex flex-col gap-3`}>
+              <SectionTitle title="Statistik 7 hari terakhir" href="/finance?p=week" link="Keuangan" />
+              <TrendChart points={trend} />
+            </section>
+          )}
+
+          <section data-reveal className={`${card} order-6 flex flex-col gap-3`}>
             <SectionTitle title={isOwner ? 'Jadwal tim minggu ini' : 'Jadwal minggu ini'} href={isOwner ? '/owner/attendance?tab=jadwal' : '/attendance'} />
             <nav aria-label="Pilih tanggal" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
               {WEEKDAYS.map((w, i) => {
@@ -413,7 +501,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         </div>
 
         <div className="contents xl:flex xl:flex-col xl:gap-5">
-          <section className={`${card} order-3 flex flex-col gap-3`}>
+          {!isOwner && (
+          <section data-reveal className={`${card} order-3 flex flex-col gap-3`}>
             <SectionTitle title={isOwner ? 'Ringkasan hari ini' : 'Ringkasan saya hari ini'} href={isOwner ? '/finance?p=day' : '/orders/new'} link={isOwner ? 'Keuangan' : 'Order saya'} />
             <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4 xl:grid-cols-2">
               <Metric
@@ -445,7 +534,33 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             </div>
           </section>
 
-          <section className={`${card} order-5 flex flex-col gap-3`}>
+          )}
+
+          <section data-reveal className={`${card} order-4 flex flex-col gap-3`}>
+            <SectionTitle title="Stok voucher per brand" href="/stock" link="Stok" />
+            <ul className="flex flex-col gap-3">
+              {brandStock.map((b) => (
+                <li key={b.id}>
+                  <Link href={`/accounts?brand=${b.id}`} className="group flex flex-col gap-1.5 rounded-xl p-1.5 hover:bg-cream-50">
+                    <span className="flex items-center justify-between gap-2 text-sm">
+                      <span className="flex items-center gap-2 font-semibold">
+                        <span className={`icon-tile size-8 text-xs font-bold ${ACCENTS[(['peach', 'mint', 'lavender', 'sky', 'navy'] as const)[brandStock.indexOf(b) % 5]]}`}>{b.id}</span>
+                        {b.name}
+                      </span>
+                      <span className="flex items-center gap-1 text-ink-500">
+                        <b className="text-navy-900">{b.available}</b> voucher
+                        <Icon name="chevron" className="size-4 transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </span>
+                    <Progress value={b.total ? (b.available / b.total) * 100 : 0} className="bg-gradient-to-r from-lavender-500 to-orange-500" label={`Sisa stok ${b.name}`} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <span className="text-[11px] text-ink-500">Voucher utama tersedia dari akun aktif; bilah = sisa dibanding semua voucher tercatat.</span>
+          </section>
+
+          <section data-reveal className={`${card} order-5 flex flex-col gap-3`}>
             <SectionTitle title="Aktivitas terbaru" href={isOwner ? '/vouchers/history' : '/attendance'} />
             {!activities.length && (
               <p className="rounded-xl bg-cream-100 p-4 text-sm text-ink-500">
