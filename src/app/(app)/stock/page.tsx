@@ -5,7 +5,9 @@ import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, Table, Tabs, inputCls } from '@/components/ui'
 import { addDays, dateLabel, jktDate, jktDateTime, rupiah, weekStart } from '@/lib/format'
-import { ACCOUNT_STATE, VOUCHER_STATUS } from '@/lib/inventory'
+import { ACCOUNT_STATE, VOUCHER_STATUS, stockLevel } from '@/lib/inventory'
+import { Progress } from '@/components/motion'
+import { Icon } from '@/components/icons'
 import { loadAccounts } from '@/lib/accounts'
 import { loadTypeSummary } from '@/lib/stock'
 import { decide } from '../approvals/actions'
@@ -52,21 +54,21 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         <Link href="/panel" className="flex min-h-11 items-center rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white">Restock via Panel</Link>
       </PageHeader>
 
-      <div className="flex flex-wrap gap-3">
-        <Stat label="Akun" value={accountCount ?? 0} sub={brand ? brands.find((b) => b.id === brand)?.name : 'semua brand'} />
-        <Stat label="Voucher utama tersedia" value={summary.filter((x) => x.grp === 'main').reduce((a, x) => a + x.available, 0)} />
-        <Stat label="Voucher tambahan tersedia" value={summary.filter((x) => x.grp === 'extra').reduce((a, x) => a + x.available, 0)} sub="mis. Baperan; dihitung per voucher, bukan per akun" />
-        <Stat label="Terpakai" value={sum('used')} />
-        <Stat label="Dipesan (draft)" value={sum('reserved')} />
-        <Stat label="Kedaluwarsa / rusak" value={sum('expired') + sum('broken')} />
-        <Stat label="Restock minggu ini" value={weekRestocks ?? 0} sub={isOwner ? 'VM + Panel' : 'Panel'} />
-        <Stat label="Koreksi menunggu" value={pendingAdj?.length ?? 0} />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat icon="user" accent="sky" label="Akun" value={accountCount ?? 0} sub={brand ? brands.find((b) => b.id === brand)?.name : 'semua brand'} />
+        <Stat icon="tag" accent="mint" label="Voucher utama tersedia" value={summary.filter((x) => x.grp === 'main').reduce((a, x) => a + x.available, 0)} />
+        <Stat icon="layers" accent="lavender" label="Voucher tambahan tersedia" value={summary.filter((x) => x.grp === 'extra').reduce((a, x) => a + x.available, 0)} sub="mis. Baperan; dihitung per voucher, bukan per akun" />
+        <Stat icon="cart" accent="peach" label="Terpakai" value={sum('used')} />
+        <Stat icon="clock" accent="peach" label="Dipesan (draft)" value={sum('reserved')} />
+        <Stat icon="alert" accent="navy" label="Kedaluwarsa / rusak" value={sum('expired') + sum('broken')} />
+        <Stat icon="restock" accent="mint" label="Restock minggu ini" value={weekRestocks ?? 0} sub={isOwner ? 'VM + Panel' : 'Panel'} />
+        <Stat icon="shield" accent="lavender" label="Koreksi menunggu" value={pendingAdj?.length ?? 0} />
       </div>
 
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 sm:pb-0">
-        <Link href={href(tab, '')} className={`flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-sm font-semibold ${!brand ? 'bg-navy-900 text-white' : 'border border-[#dcd2bf] bg-white'}`}>Semua brand</Link>
+        <Link href={href(tab, '')} scroll={false} aria-current={!brand ? 'true' : undefined} className={`btn-press flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-sm font-semibold ${!brand ? 'bg-navy-900 text-white' : 'border border-cream-300 bg-white text-ink-500 hover:text-navy-900'}`}>Semua brand</Link>
         {brands.map((b) => (
-          <Link key={b.id} href={href(tab, b.id)} className={`flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-sm font-semibold ${brand === b.id ? 'bg-navy-900 text-white' : 'border border-[#dcd2bf] bg-white'}`}>
+          <Link key={b.id} href={href(tab, b.id)} scroll={false} aria-current={brand === b.id ? 'true' : undefined} className={`btn-press flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-sm font-semibold ${brand === b.id ? 'bg-navy-900 text-white' : 'border border-cream-300 bg-white text-ink-500 hover:text-navy-900'}`}>
             {b.name}
           </Link>
         ))}
@@ -76,6 +78,31 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
 
       {tab === 'jenis' && (
         <Card title="Stok per jenis voucher">
+          {!summary.length && <p className="text-sm text-ink-500">Tidak ada data untuk brand ini.</p>}
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:hidden">
+            {summary.map((s) => (
+              <li key={s.id} data-reveal className="flex flex-col gap-2 rounded-xl border border-cream-300 bg-white p-3.5 text-sm">
+                <span className="flex items-start justify-between gap-2">
+                  <span className="flex flex-col">
+                    <b>{s.name} <span className="font-mono text-xs font-normal text-ink-500">{s.code}</span></b>
+                    <span className="text-xs text-ink-500">{brands.find((b) => b.id === s.brand_id)?.name} · {s.grp === 'main' ? 'Utama' : 'Tambahan'}</span>
+                  </span>
+                  <span className="text-right">
+                    <b className="font-display text-xl">{s.available}</b>
+                    <span className="block text-xs text-ink-500">sisa dari {s.total}</span>
+                  </span>
+                </span>
+                <Progress value={s.total ? (s.available / s.total) * 100 : 0} className="bg-gradient-to-r from-lavender-500 to-orange-500" label={`Sisa ${s.name}`} />
+                <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
+                  <span>Terpakai <b className="text-navy-900">{s.used}</b></span>
+                  <span>Dipesan <b className="text-navy-900">{s.reserved}</b></span>
+                  <span>Kedaluwarsa/rusak <b className="text-navy-900">{s.expired + s.broken}</b></span>
+                </span>
+                {s.configured ? <span className="text-xs text-ink-500">{s.rule}</span> : <span><Pill tone="warning">Belum dikonfigurasi</Pill></span>}
+              </li>
+            ))}
+          </ul>
+          <div className="hidden lg:block">
           <Table head={['Jenis voucher', 'Brand', 'Kelompok', 'Total masuk', 'Terpakai', 'Dipesan', 'Kedaluwarsa / rusak', 'Sisa', 'Ketentuan']} empty="Tidak ada data untuk brand ini.">
             {summary.map((s) => (
               <tr key={s.id}>
@@ -86,11 +113,15 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                 <td>{s.used}</td>
                 <td>{s.reserved}</td>
                 <td>{s.expired + s.broken}</td>
-                <td className="font-display text-base font-bold">{s.available}</td>
+                <td className="min-w-28">
+                  <span className="font-display text-base font-bold">{s.available}</span>
+                  <span className="mt-1 block"><Progress value={s.total ? (s.available / s.total) * 100 : 0} className="bg-gradient-to-r from-lavender-500 to-orange-500" label={`Sisa ${s.name}`} /></span>
+                </td>
                 <td>{s.configured ? <span className="text-xs text-ink-500">{s.rule}</span> : <Pill tone="warning">Belum dikonfigurasi</Pill>}</td>
               </tr>
             ))}
           </Table>
+          </div>
           <Note>
             Sisa = masuk − terpakai − dipesan − kedaluwarsa/rusak, dari voucher yang tercatat di aplikasi ini. Angka tidak disinkronkan dari aplikasi brand;
             stok hanya berubah lewat restock, order, dan koreksi yang disetujui owner.
@@ -110,6 +141,30 @@ async function AccountsTab({ brand }: { brand?: string }) {
   const { brands, types, filtered } = await loadAccounts(supabase, { brand })
   return (
     <Card title="Sisa per akun">
+      {!filtered.length && <p className="text-sm text-ink-500">Tidak ada akun.</p>}
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:hidden">
+        {filtered.map((r) => {
+          const avail = r.vouchers.filter((v) => v.status === 'available')
+          const st = ACCOUNT_STATE[r.state]
+          return (
+            <li key={r.id}>
+              <Link href={`/accounts/${r.id}`} className="card-hover flex flex-col gap-1.5 rounded-xl border border-cream-300 bg-white p-3.5 text-sm">
+                <span className="flex items-center justify-between gap-2">
+                  <b className="font-mono">{r.account_code}</b>
+                  <Pill tone={st.tone}>{st.label}</Pill>
+                </span>
+                <span className="text-xs text-ink-500">{brands.find((b) => b.id === r.brand_id)?.name} · {r.source === 'vm' ? 'VM' : 'Panel'}</span>
+                <span className="flex items-center gap-2 text-xs">
+                  <span aria-hidden className={`size-2 rounded-full ${avail.length === 0 ? 'bg-[#c9cdd6]' : stockLevel(avail.length) === 'menipis' ? 'bg-[#f5b544]' : 'bg-[#4fb286]'}`} />
+                  <b>{avail.length}</b> tersedia · utama {avail.filter((v) => v.grp === 'main').length} · tambahan {avail.filter((v) => v.grp === 'extra').length}
+                  {avail.length > 0 && stockLevel(avail.length) === 'menipis' && <span className="rounded-full bg-warning-100 px-2 py-0.5 text-[10px] font-bold text-warning-700">MENIPIS</span>}
+                </span>
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+      <div className="hidden lg:block">
       <Table head={['ID akun', 'Brand', 'Sumber', 'Sisa per jenis', 'Utama tersedia', 'Tambahan tersedia', 'Status', '']} empty="Tidak ada akun.">
         {filtered.map((r) => {
           const avail = r.vouchers.filter((v) => v.status === 'available')
@@ -131,6 +186,7 @@ async function AccountsTab({ brand }: { brand?: string }) {
           )
         })}
       </Table>
+      </div>
     </Card>
   )
 }
@@ -151,6 +207,33 @@ async function RestockTab({ brand, isOwner }: { brand?: string; isOwner: boolean
   return (
     <>
       <Card title="Riwayat restock (30 hari)">
+        {!rows.length && <p className="text-sm text-ink-500">Belum ada restock.</p>}
+        <ul className="flex flex-col divide-y divide-[#f3ede2] lg:hidden">
+          {rows.map((r) => (
+            <li key={r.id} className="flex flex-col gap-1 py-3 text-sm">
+              <span className="flex items-center justify-between gap-2">
+                <b className="font-mono text-[13px]">{r.code}</b>
+                <Pill tone="success">{(vouchers ?? []).filter((v) => v.restock_id === r.id).length} voucher masuk</Pill>
+              </span>
+              <span>{RESTOCK_KIND[r.kind] ?? r.kind} · {(r.items as Item[]).map((i) => `${i.type}×${i.qty}`).join(', ')}</span>
+              <span className="text-xs text-ink-500">
+                {r.source === 'vm' ? `VM${r.vm_device_id ? ' · ' + r.vm_device_id : ''}` : 'Panel'} ·{' '}
+                {r.account_id ? <Link href={`/accounts/${r.account_id}`} className="font-mono">{acc(r.account_id)?.account_code}</Link> : 'Tanpa akun'} · {jktDateTime(r.created_at)} · {profiles?.find((p) => p.id === r.created_by)?.full_name ?? '—'}
+              </span>
+              {r.kind === 'extra_only' && (
+                <span className="text-xs">{r.unit_cost === null ? <Pill tone="warning">Modal belum diisi</Pill> : `${rupiah(r.unit_cost)} / voucher`}{r.source_note ? ` · ${r.source_note}` : ''}</span>
+              )}
+              {isOwner && r.kind === 'extra_only' && r.unit_cost === null && (
+                <ActionForm action={setRestockCost} className="flex gap-1.5">
+                  <input type="hidden" name="restock" value={r.id} />
+                  <input name="unit_cost" inputMode="numeric" required placeholder="Rp/voucher" className={`${inputCls} w-32 text-base`} />
+                  <SubmitButton variant="ghost" className="min-h-11 px-3">Isi</SubmitButton>
+                </ActionForm>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="hidden lg:block">
         <Table head={['ID restock', 'Sumber', 'ID akun', 'Jenis operasi', 'Jumlah per jenis', 'Modal / sumber', 'Waktu', 'Oleh', 'Hasil']} empty="Belum ada restock.">
           {rows.map((r) => (
             <tr key={r.id}>
@@ -186,6 +269,7 @@ async function RestockTab({ brand, isOwner }: { brand?: string; isOwner: boolean
             </tr>
           ))}
         </Table>
+        </div>
         {!isOwner && <p className="text-xs text-ink-500">Restock dari Virtual Machine hanya terlihat oleh owner.</p>}
       </Card>
       <Card title="Pencegahan duplikat">
@@ -197,7 +281,7 @@ async function RestockTab({ brand, isOwner }: { brand?: string; isOwner: boolean
             'Nomor akun VM unik di seluruh inventaris.',
             'Histori stok hanya bisa ditambah, tidak bisa diubah atau dihapus.',
           ].map((g) => (
-            <li key={g} className="flex gap-2"><span className="font-bold text-success-700">✓</span>{g}</li>
+            <li key={g} className="flex gap-2"><span className="icon-tile size-5 shrink-0 rounded-full bg-mint-100 text-mint-500"><Icon name="check" className="size-3.5" /></span>{g}</li>
           ))}
         </ul>
       </Card>
