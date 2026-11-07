@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams
   const to = isYmd(p.get('to')) ? p.get('to')! : jktDate()
   const from = isYmd(p.get('from')) ? p.get('from')! : addDays(to, -6)
-  const rows = await loadHistory(supabase, { from, to, brand: p.get('brand') ?? undefined, event: p.get('event') ?? undefined, q: p.get('q') ?? undefined })
+  const rows = await loadHistory(supabase, { from, to, brand: p.get('brand') ?? undefined, event: p.get('event') ?? undefined, q: p.get('q') ?? undefined, type: p.get('type') ?? undefined, status: p.get('status') ?? undefined })
   const esc = (v: unknown) => {
     const s = String(v ?? '')
     const safe = /^[=+\-@]/.test(s) ? `'${s}` : s

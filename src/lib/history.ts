@@ -2,7 +2,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { addDays } from '@/lib/format'
 
-export type HistoryFilter = { from: string; to: string; brand?: string; event?: string; q?: string }
+export type HistoryFilter = { from: string; to: string; brand?: string; event?: string; q?: string; type?: string; status?: string }
 
 export type HistoryRow = {
   id: number
@@ -14,6 +14,7 @@ export type HistoryRow = {
   voucherCode: string
   accountId: string | null
   accountCode: string
+  typeId: string | null
   typeName: string
   customer: string | null
   wa: string | null
@@ -37,8 +38,34 @@ export async function loadHistory(supabase: SupabaseClient, f: HistoryFilter): P
     .order('id', { ascending: false })
     .limit(500)
   if (f.event) lq = lq.eq('reason', f.event)
+  if (f.status) lq = lq.eq('status_after', f.status)
   const { data: ledger } = await lq
-  const rows = ledger ?? []
+  const out = await enrich(supabase, ledger ?? [])
+  const q = f.q?.trim().toLowerCase()
+  return out.filter(
+    (r) =>
+      (!f.brand || r.voucherCode.startsWith(`V-${f.brand}`)) &&
+      (!f.type || r.typeId === f.type) &&
+      (!q || [r.voucherCode, r.accountCode, r.orderCode, r.customer, r.ref].some((x) => x?.toLowerCase().includes(q))),
+  )
+}
+
+/** Seluruh perjalanan satu voucher (semua peristiwa sejak restock), urut dari yang terbaru. */
+export async function loadVoucherTrail(supabase: SupabaseClient, code: string) {
+  const { data: v } = await supabase.from('vouchers').select('id, code, status, account_id').eq('code', code).maybeSingle()
+  if (!v) return null
+  const { data: ledger } = await supabase
+    .from('stock_ledger')
+    .select('id, voucher_id, account_id, delta, reason, status_after, ref, actor_id, at')
+    .eq('voucher_id', v.id)
+    .order('at', { ascending: false })
+    .order('id', { ascending: false })
+  return { voucher: v, rows: await enrich(supabase, ledger ?? []) }
+}
+
+type LedgerRow = { id: number; voucher_id: string; account_id: string | null; delta: number; reason: string; status_after: string; ref: string | null; actor_id: string | null; at: string }
+
+async function enrich(supabase: SupabaseClient, rows: LedgerRow[]): Promise<HistoryRow[]> {
   const vIds = [...new Set(rows.map((r) => r.voucher_id))]
   const aIds = [...new Set(rows.map((r) => r.account_id).filter((x): x is string => !!x))]
 
@@ -73,6 +100,7 @@ export async function loadHistory(supabase: SupabaseClient, f: HistoryFilter): P
       voucherCode: v?.code ?? '—',
       accountId: r.account_id,
       accountCode: a?.account_code ?? (r.account_id ? '—' : 'Tanpa akun'),
+      typeId: v?.voucher_type_id ?? null,
       typeName: types?.find((t) => t.id === v?.voucher_type_id)?.name ?? '',
       customer: u?.customer_name ?? null,
       wa: u?.customer_wa ?? null,
@@ -83,10 +111,5 @@ export async function loadHistory(supabase: SupabaseClient, f: HistoryFilter): P
     }
   })
 
-  const q = f.q?.trim().toLowerCase()
-  return out.filter(
-    (r) =>
-      (!f.brand || r.voucherCode.startsWith(`V-${f.brand}`)) &&
-      (!q || [r.voucherCode, r.accountCode, r.orderCode, r.customer, r.ref].some((x) => x?.toLowerCase().includes(q))),
-  )
+  return out
 }
