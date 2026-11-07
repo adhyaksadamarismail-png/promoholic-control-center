@@ -7,8 +7,9 @@ import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, Tabs, inputCls, labelCls } from '@/components/ui'
 import { BulkRestock } from '@/components/bulk-restock'
 import { BatchHistory } from '@/components/batch-history'
-import { dateLabel, jktDate } from '@/lib/format'
-import { VOUCHER_STATUS, currentVersion, ruleLabel, type Rule, type VoucherStatus } from '@/lib/inventory'
+import { dateLabel, jktDate, jktDateTime } from '@/lib/format'
+import { VOUCHER_STATUS, currentVersion, ruleLabel, stockLevel, type Rule, type VoucherStatus } from '@/lib/inventory'
+import { Progress } from '@/components/motion'
 import { addDevice, vmAddAccount, vmUpdateAccount } from './actions'
 
 export const dynamic = 'force-dynamic'
@@ -78,14 +79,18 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
       </div>
     )
 
-  const [{ data: devices }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }] = await Promise.all([
+  const [{ data: devices }, { data: accounts }, { data: vouchers }, { data: types }, { data: versions }, { data: uses }] = await Promise.all([
     supabase.from('vm_devices').select('id, name, note, is_active').order('id'),
     supabase.from('accounts').select('id, brand_id, account_code, vm_device_id, account_number, entered_at, active_until').eq('source', 'vm').is('archived_at', null).order('account_code'),
     supabase.from('vouchers').select('id, account_id, voucher_type_id, grp, slot, status, code'),
     supabase.from('voucher_types').select('id, brand_id, code, name, grp, auto_per_account, sort_order').eq('brand_id', 'KK').order('sort_order'),
     supabase.from('voucher_type_versions').select('voucher_type_id, discount_pct, fixed_discount, min_purchase, max_discount, b1g1_terms, effective_from'),
+    // Informasi penggunaan: pemakaian terakhir per akun dari histori stok (hanya-tambah).
+    supabase.from('stock_ledger').select('account_id, at, accounts!inner(source)').eq('reason', 'use').eq('accounts.source', 'vm').order('at', { ascending: false }).limit(1000),
   ])
   const sp = await searchParams
+  const lastUse = (id: string) => (uses ?? []).find((u) => u.account_id === id)?.at ?? null
+  const usageCount = (id: string) => (uses ?? []).filter((u) => u.account_id === id).length
   const devs = devices ?? []
   const device = devs.find((d) => d.id === sp.device) ?? devs[0]
   const vmAccounts = accounts ?? []
@@ -107,27 +112,39 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
         transaksi dan koreksi yang tercatat.
       </Note>
 
-      <div className="flex flex-wrap gap-3">
-        <Stat label="Device aktif" value={devs.filter((d) => d.is_active).length} />
-        <Stat label="Akun VM" value={vmAccounts.length} />
-        <Stat label="Voucher utama tersedia" value={vmVouchers.filter((v) => v.grp === 'main' && v.status === 'available').length} />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat icon="monitor" accent="lavender" label="Device aktif" value={devs.filter((d) => d.is_active).length} sub={`${devs.length} device tercatat`} />
+        <Stat icon="user" accent="sky" label="Akun VM" value={vmAccounts.length} />
+        <Stat icon="tag" accent="mint" label="Voucher utama tersedia" value={vmVouchers.filter((v) => v.grp === 'main' && v.status === 'available').length} />
+        <Stat icon="cart" accent="peach" label="Voucher terpakai" value={vmVouchers.filter((v) => v.status === 'used').length} sub={vmVouchers.some((v) => v.status === 'reserved') ? `${vmVouchers.filter((v) => v.status === 'reserved').length} dipesan draft` : 'tidak ada draft'} />
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <Card title="Virtual device">
+        <Card title="Virtual device" className="lg:sticky lg:top-6">
           <ul className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0">
             {devs.map((d) => (
               <li key={d.id} className="min-w-[150px] shrink-0 lg:min-w-0">
                 <Link
                   href={`/vm?device=${d.id}`}
                   aria-current={d.id === device?.id ? 'page' : undefined}
-                  className={`flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-sm ${d.id === device?.id ? 'bg-navy-900 text-white' : 'border border-cream-300 hover:bg-cream-100'}`}
+                  scroll={false}
+                  className={`btn-press flex flex-col gap-2 rounded-xl px-3 py-2.5 text-sm ${d.id === device?.id ? 'bg-navy-900 text-white shadow-[0_8px_18px_-10px_rgb(21_35_66/0.7)]' : 'border border-cream-300 hover:bg-cream-100'}`}
                 >
-                  <span className="flex flex-col">
-                    <b>{d.name}</b>
-                    <span className={`font-mono text-xs ${d.id === device?.id ? 'text-[#c5cbd9]' : 'text-ink-500'}`}>{d.id}</span>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="flex flex-col">
+                      <b className="flex items-center gap-1.5">
+                        <span aria-hidden className={`size-2 rounded-full ${d.is_active ? 'bg-[#4fb286]' : 'bg-[#c9cdd6]'}`} />
+                        {d.name}
+                      </b>
+                      <span className={`font-mono text-xs ${d.id === device?.id ? 'text-[#c5cbd9]' : 'text-ink-500'}`}>{d.id}{!d.is_active && ' · nonaktif'}</span>
+                    </span>
+                    <span className="text-right text-xs">
+                      {vmAccounts.filter((a) => a.vm_device_id === d.id).length} akun
+                      <span className={`block ${d.id === device?.id ? 'text-[#c5cbd9]' : 'text-ink-500'}`}>
+                        {vmVouchers.filter((v) => v.status === 'available' && vmAccounts.some((a) => a.id === v.account_id && a.vm_device_id === d.id)).length} voucher siap
+                      </span>
+                    </span>
                   </span>
-                  <span className="text-xs">{vmAccounts.filter((a) => a.vm_device_id === d.id).length} akun</span>
                 </Link>
               </li>
             ))}
@@ -146,14 +163,24 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
           {device && (
             <Card title={`Akun di ${device.name}`} aside={<span className="font-mono text-sm text-ink-500">{device.id}</span>}>
               {!inDevice.length && <p className="text-sm text-ink-500">Belum ada akun di device ini.</p>}
-              <ul className="flex flex-col gap-2">
+              {inDevice.length > 0 && (() => {
+                const all = vmVouchers.filter((v) => inDevice.some((a) => a.id === v.account_id))
+                const avail = all.filter((v) => v.status === 'available').length
+                return (
+                  <div className="flex flex-col gap-1.5 rounded-xl bg-cream-50 p-3 text-sm">
+                    <span className="flex justify-between"><span>Stok device</span><b>{avail} dari {all.length} voucher tersedia</b></span>
+                    <Progress value={all.length ? (avail / all.length) * 100 : 0} className="bg-gradient-to-r from-lavender-500 to-orange-500" label={`Stok ${device.name}`} />
+                  </div>
+                )
+              })()}
+              <ul className="grid grid-cols-1 gap-2 xl:grid-cols-2">
                 {inDevice.map((a) => {
                   const vs = vmVouchers.filter((v) => v.account_id === a.id).sort((x, y) => (typeOf(x.voucher_type_id)?.sort_order ?? 0) - (typeOf(y.voucher_type_id)?.sort_order ?? 0) || x.slot - y.slot)
                   const main = vs.filter((v) => v.grp === 'main')
                   const bp = vs.filter((v) => v.grp === 'extra')
                   const expired = a.active_until && a.active_until < today
                   return (
-                    <li key={a.id} className="flex flex-col gap-2 rounded-xl border border-cream-300 p-3">
+                    <li key={a.id} data-reveal className="card-hover flex flex-col gap-2 rounded-xl border border-cream-300 bg-white p-3.5">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="flex flex-wrap items-center gap-2">
                           <Link href={`/accounts/${a.id}`} className="font-mono font-semibold">{a.account_code}</Link>
@@ -169,6 +196,21 @@ export default async function VmPage({ searchParams }: { searchParams: Promise<{
                           {bp.length > 0 && <span className="rounded bg-orange-100 px-1.5 text-xs font-bold text-orange-700">+{bp.filter((v) => v.status === 'available').length}/{bp.length} BP</span>}
                         </span>
                       </div>
+                      {(() => {
+                        const avail = vs.filter((v) => v.status === 'available').length
+                        const last = lastUse(a.id)
+                        return (
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
+                            <span className="flex items-center gap-1.5">
+                              <span aria-hidden className={`size-2 rounded-full ${avail === 0 ? 'bg-[#c9cdd6]' : stockLevel(avail) === 'menipis' ? 'bg-[#f5b544]' : 'bg-[#4fb286]'}`} />
+                              <b className="text-navy-900">{avail}</b> voucher tersedia
+                            </span>
+                            {avail > 0 && stockLevel(avail) === 'menipis' && <span className="rounded-full bg-warning-100 px-2 py-0.5 text-[10px] font-bold text-warning-700">MENIPIS</span>}
+                            {expired && <Pill tone="danger">Masa aktif lewat</Pill>}
+                            <span>{last ? `Terakhir dipakai ${jktDateTime(last)} · ${usageCount(a.id)} pemakaian tercatat` : 'Belum pernah dipakai'}</span>
+                          </div>
+                        )
+                      })()}
                       <details className="text-sm">
                         <summary className="cursor-pointer text-xs font-semibold text-orange-700">Ubah data akun</summary>
                         <div className="mt-2 grid gap-3 md:max-w-md">

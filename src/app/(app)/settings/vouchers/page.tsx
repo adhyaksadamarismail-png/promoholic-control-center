@@ -64,7 +64,7 @@ export default async function VoucherConfigPage({ searchParams }: { searchParams
         active={brand.id}
       />
 
-      <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-cream-300 bg-white p-4 md:grid-cols-4">
+      <dl data-reveal className="grid grid-cols-2 gap-3 rounded-2xl border border-cream-300 bg-white p-4 md:grid-cols-4">
         {[
           ['Jalur restock', brand.vm_allowed ? 'Virtual Machine & Panel' : 'Panel Admin'],
           ['Dasar modal', cost ? BASIS[cost.basis] : 'belum dikonfigurasi'],
@@ -86,6 +86,36 @@ export default async function VoucherConfigPage({ searchParams }: { searchParams
       )}
 
       <Card title="Jenis voucher">
+        {/* HP: kartu per jenis. */}
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:hidden">
+          {bTypes.map((t) => {
+            const v = cur(t.id)
+            return (
+              <li key={t.id}>
+                <Link
+                  href={`/settings/vouchers?brand=${brand.id}&type=${t.id}`}
+                  scroll={false}
+                  className={`card-hover flex flex-col gap-1.5 rounded-xl border p-3.5 text-sm ${sel?.id === t.id ? 'border-orange-500 bg-orange-100/50' : 'border-cream-300 bg-white'}`}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span><b>{t.name}</b> <span className="font-mono text-xs text-ink-500">{t.code}</span></span>
+                    <Pill tone={configured(v) ? 'success' : 'warning'}>{configured(v) ? 'Lengkap' : 'Belum'}</Pill>
+                  </span>
+                  <span className="text-xs text-ink-500">
+                    {t.grp === 'main' ? 'Utama' : 'Tambahan'} · {t.auto_per_account ? `${t.auto_per_account} otomatis` : 'diisi saat restock'}
+                    {!t.is_active && ' · nonaktif'}
+                  </span>
+                  <span className="text-xs">
+                    {discountText(v)}
+                    {v && (v.min_purchase ? ` · min. ${rupiah(v.min_purchase)}` : ' · tanpa minimum')}
+                    {v && v.fixed_discount === null && (v.max_discount !== null ? ` · maks. ${rupiah(v.max_discount)}` : '')}
+                  </span>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="hidden md:block">
         <Table head={['Jenis voucher', 'Kelompok', 'Jumlah per akun', 'Diskon / potongan', 'Min. pembelian', 'Maks. potongan', 'Masa berlaku', 'Status', 'Berlaku sejak', '']}>
           {bTypes.map((t) => {
             const v = cur(t.id)
@@ -112,6 +142,7 @@ export default async function VoucherConfigPage({ searchParams }: { searchParams
             )
           })}
         </Table>
+        </div>
       </Card>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
@@ -127,7 +158,7 @@ export default async function VoucherConfigPage({ searchParams }: { searchParams
                     ['fixed', 'Potongan tetap (Rp)'],
                     ['none', 'Belum diketahui / B1G1'],
                   ].map(([k, l]) => (
-                    <label key={k} className="flex min-h-11 items-center gap-2 rounded-lg border border-[#dcd2bf] px-3 text-sm">
+                    <label key={k} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-[#dcd2bf] bg-white px-3 text-sm transition-colors has-[:checked]:border-orange-500 has-[:checked]:bg-orange-100/60">
                       <input
                         type="radio"
                         name="mode"
@@ -180,27 +211,33 @@ export default async function VoucherConfigPage({ searchParams }: { searchParams
         )}
 
         <Card title={`Histori perubahan · ${brand.name}`}>
-          <ul className="flex flex-col divide-y divide-[#f1eadc] text-sm">
+          <ol className="flex flex-col text-sm">
             {history.map((v) => {
               const t = bTypes.find((x) => x.id === v.voucher_type_id)
               const isCurrent = cur(v.voucher_type_id)?.id === v.id
+              const upcoming = v.effective_from > nowIso
               return (
-                <li key={v.id} className="flex flex-col gap-0.5 py-2">
-                  <span>
-                    <b>{t?.name}</b> · {discountText(v)}
-                    {v.min_purchase ? ` · min. ${rupiah(v.min_purchase)}` : ''}
-                    {v.max_discount !== null ? ` · maks. ${rupiah(v.max_discount)}` : ''}
-                  </span>
-                  <span className="text-xs text-ink-500">
-                    Berlaku {jktDateTime(v.effective_from)} · {profiles?.find((p) => p.id === v.created_by)?.full_name ?? 'Sistem'}
-                    {isCurrent && ' · aktif'}
-                    {v.effective_from > nowIso && ' · terjadwal'}
+                <li key={v.id} className="group/ver relative flex gap-3 pb-3 last:pb-0">
+                  <span aria-hidden className="absolute bottom-0 left-[0.4375rem] top-5 w-px bg-cream-300 group-last/ver:hidden" />
+                  <span aria-hidden className={`relative z-[1] mt-1 size-3.5 shrink-0 rounded-full ring-4 ring-white ${isCurrent ? 'bg-success-700' : upcoming ? 'bg-orange-500' : 'bg-[#c9cdd6]'}`} />
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <b>{t?.name}</b>
+                      {isCurrent && <Pill tone="success">Aktif</Pill>}
+                      {upcoming && <Pill tone="orange">Terjadwal</Pill>}
+                    </span>
+                    <span>
+                      {discountText(v)}
+                      {v.min_purchase ? ` · min. ${rupiah(v.min_purchase)}` : ''}
+                      {v.max_discount !== null ? ` · maks. ${rupiah(v.max_discount)}` : ''}
+                    </span>
+                    <span className="text-xs text-ink-500">Berlaku {jktDateTime(v.effective_from)} · {profiles?.find((p) => p.id === v.created_by)?.full_name ?? 'Sistem'}</span>
                   </span>
                 </li>
               )
             })}
             {!history.length && <li className="py-2 text-ink-500">Belum ada versi.</li>}
-          </ul>
+          </ol>
         </Card>
       </div>
 
