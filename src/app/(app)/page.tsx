@@ -6,7 +6,7 @@ import { WEEKDAYS, addDays, dateLabel, isYmd, jktDate, jktTime, rupiah, weekStar
 import { ABSENCE, effectiveEvents, firstOf, shiftLabel, type AbsenceKind, type AttendanceEvent } from '@/lib/attendance'
 import { loadTypeSummary } from '@/lib/stock'
 import { ACCENTS, type Accent } from '@/components/ui'
-import { CountUp, Progress } from '@/components/motion'
+import { CountUp, GlowBorder, Progress } from '@/components/motion'
 import { TrendChart, type TrendPoint } from './trend-chart'
 
 export const dynamic = 'force-dynamic'
@@ -397,7 +397,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       {/* HP & tablet: satu kolom berurutan (order-*). Desktop lebar: dua kolom. */}
       <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] xl:items-start">
         <div className="contents xl:flex xl:flex-col xl:gap-5">
-          <section data-reveal className={`${card} order-1 flex flex-col gap-3`}>
+          <GlowBorder as="section" tone="sky" data-reveal className={`${card} order-1 flex flex-col gap-3`}>
             {isOwner && !myToday.length ? (
               <>
                 <SectionTitle title="Perlu tindakan owner" href="/approvals" link="Persetujuan" />
@@ -435,7 +435,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                 )}
               </>
             )}
-          </section>
+          </GlowBorder>
 
           <section data-reveal className="order-2 flex flex-col gap-3">
             <SectionTitle title="Transaksi cepat" />

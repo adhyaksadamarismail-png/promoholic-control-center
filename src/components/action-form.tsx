@@ -109,9 +109,11 @@ export function ActionForm({
       {state && (
         <p
           role={state.ok ? 'status' : 'alert'}
-          className={`animate-enter rounded-lg px-3 py-2 text-sm ${state.ok ? 'bg-success-100 text-success-700' : 'bg-danger-100 text-[#7a1a12]'} ${resultClassName ?? ''}`}
+          key={state.message + String(state.ok)}
+          className={`animate-enter flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${state.ok ? 'bg-success-100 text-success-700' : 'bg-danger-100 text-[#7a1a12]'} ${resultClassName ?? ''}`}
         >
-          {state.message}
+          {state.ok && <CheckDraw />}
+          <span className="min-w-0">{state.message}</span>
         </p>
       )}
     </form>
@@ -153,5 +155,15 @@ export function SubmitButton({
     >
       {mine ? <span className="inline-flex items-center gap-2"><span className="spinner" aria-hidden />{pendingText}</span> : children}
     </button>
+  )
+}
+
+/** Centang yang tergambar saat data berhasil disimpan/diproses. */
+export function CheckDraw({ className = 'size-[18px]' }: { className?: string }) {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" className={`check-draw mt-px shrink-0 ${className}`}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m7.5 12.5 3 3 6-6.5" />
+    </svg>
   )
 }

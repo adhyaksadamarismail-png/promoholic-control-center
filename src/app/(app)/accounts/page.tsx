@@ -5,11 +5,13 @@ import { Note, PageHeader, Pill, Table, Tabs, inputCls } from '@/components/ui'
 import { dateLabel, jktDate } from '@/lib/format'
 import { ACCOUNT_STATE, VOUCHER_STATUS, stockLevel } from '@/lib/inventory'
 import { loadAccounts, type AccountFilter } from '@/lib/accounts'
-import { BulkAccountProvider, RowCheck } from './bulk-archive'
+import { BulkAccountProvider, CardActions, RowCheck } from './bulk-archive'
 import { AccountSearch } from './account-search'
 import { BaperanList } from './baperan-list'
 
 export const dynamic = 'force-dynamic'
+
+const CHIP_MAX = 4 // chip voucher utama yang tampil di kartu; sisanya diringkas "+n" agar tinggi kartu tetap
 
 const CHIP: Record<string, string> = {
   available: 'bg-success-100 text-success-700 border-success-700/30',
@@ -155,47 +157,46 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
           const avail = r.vouchers.filter((v) => v.status === 'available').length
           const level = stockLevel(avail)
           return (
-            <li key={r.id} data-reveal className="relative">
-              <Link
-                href={`/accounts/${r.id}`}
-                className={`card-hover flex h-full min-w-0 flex-col gap-2.5 rounded-2xl border border-cream-300 bg-white p-4 ${isOwner ? 'pl-12' : ''}`}
-              >
-                <span className="flex items-start justify-between gap-2">
-                  <span className="flex min-w-0 flex-col">
-                    <span className="font-mono text-base font-bold [overflow-wrap:anywhere]">{r.account_code}</span>
-                    <span className="text-xs text-ink-500">
+            <li key={r.id} data-reveal className="min-w-0">
+              <article className="card-hover flex h-full flex-col gap-2.5 rounded-2xl border border-cream-300 bg-white p-4">
+                <span className="flex items-start gap-3">
+                  {isOwner && <span className="pt-0.5"><RowCheck id={r.id} code={r.account_code} /></span>}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <Link href={`/accounts/${r.id}`} className="truncate font-mono text-base font-bold underline-offset-4 hover:underline" title={r.account_code}>{r.account_code}</Link>
+                    <span className="truncate text-xs text-ink-500">
                       {brands.find((b) => b.id === r.brand_id)?.name} · {r.source === 'vm' ? `VM${r.vm_device_id ? ' ' + r.vm_device_id : ''}` : 'Panel'}
                     </span>
                   </span>
                   <span
                     aria-hidden
-                    title={level === 'menipis' ? 'Stok menipis' : 'Stok cukup'}
+                    title={avail === 0 ? 'Stok habis' : level === 'menipis' ? 'Stok menipis' : 'Stok cukup'}
                     className={`mt-1.5 size-2.5 shrink-0 rounded-full ${avail === 0 ? 'bg-[#c9cdd6]' : level === 'menipis' ? 'bg-[#f5b544]' : 'bg-[#4fb286]'}`}
                   />
                 </span>
-                <span className="flex items-baseline gap-1.5">
-                  <span className="font-display text-xl font-bold">{avail}</span>
+                {/* Baris berukuran tetap: jumlah voucher, badge, dan info tambahan tidak mengubah tinggi kartu. */}
+                <span className="flex h-7 items-center gap-1.5">
+                  <span className="font-display text-xl font-bold leading-none">{avail}</span>
                   <span className="text-xs text-ink-500">voucher tersedia</span>
-                  {avail > 0 && level === 'menipis' && <span className="ml-auto rounded-full bg-warning-100 px-2 py-0.5 text-[10px] font-bold text-warning-700">MENIPIS</span>}
+                  <span className="ml-auto">
+                    {avail === 0 ? <span className="rounded-full bg-[#eef0f4] px-2 py-0.5 text-[10px] font-bold text-[#6e7689]">HABIS</span>
+                      : level === 'menipis' ? <span className="rounded-full bg-warning-100 px-2 py-0.5 text-[10px] font-bold text-warning-700">MENIPIS</span> : null}
+                  </span>
                 </span>
-                {r.account_number && <span className="font-mono text-xs text-ink-500">{r.account_number}</span>}
-                {inArchive && r.archived_at && <span className="text-xs text-ink-500">Diarsipkan {dateLabel(jktDate(r.archived_at))}{r.archive_note ? ` · ${r.archive_note}` : ''}</span>}
-                <span className="mt-auto flex flex-wrap items-center gap-1 border-t border-[#f3ede2] pt-2.5">
-                  {main.map((v) => (
-                    <span key={v.id} title={`${v.code} · ${VOUCHER_STATUS[v.status].label}`} className={`rounded-md border px-1.5 text-xs font-bold ${CHIP[v.status]}`}>{typeCode(v.voucher_type_id)}</span>
+                <span className={`h-4 truncate text-xs ${expired ? 'font-semibold text-danger-700' : 'text-ink-500'}`}>
+                  {inArchive && r.archived_at
+                    ? `Diarsipkan ${dateLabel(jktDate(r.archived_at))}${r.archive_note ? ` · ${r.archive_note}` : ''}`
+                    : [r.account_number, r.active_until ? `Aktif s/d ${dateLabel(r.active_until)}` : null].filter(Boolean).join(' · ')}
+                </span>
+                <span className="flex h-6 items-center gap-1 overflow-hidden border-t border-[#f3ede2] pt-2.5 box-content">
+                  {main.slice(0, CHIP_MAX).map((v) => (
+                    <span key={v.id} title={`${v.code} · ${VOUCHER_STATUS[v.status].label}`} className={`shrink-0 rounded-md border px-1.5 text-xs font-bold ${CHIP[v.status]}`}>{typeCode(v.voucher_type_id)}</span>
                   ))}
-                  {extra.length > 0 && <span className="text-xs text-ink-500">· tambahan {extra.filter((v) => v.status === 'available').length}/{extra.length}</span>}
-                  <span className="ml-auto"><Pill tone={st.tone}>{st.label}</Pill></span>
+                  {main.length > CHIP_MAX && <span className="shrink-0 text-xs font-semibold text-ink-500">+{main.length - CHIP_MAX}</span>}
+                  {extra.length > 0 && <span className="truncate text-xs text-ink-500">· tambahan {extra.filter((v) => v.status === 'available').length}/{extra.length}</span>}
+                  <span className="ml-auto shrink-0"><Pill tone={st.tone}>{st.label}</Pill></span>
                 </span>
-                {r.active_until && (
-                  <span className={`text-xs ${expired ? 'font-semibold text-danger-700' : 'text-ink-500'}`}>Aktif s/d {dateLabel(r.active_until)}</span>
-                )}
-              </Link>
-              {isOwner && (
-                <span className="absolute left-3 top-4">
-                  <RowCheck id={r.id} code={r.account_code} />
-                </span>
-              )}
+                <CardActions id={r.id} code={r.account_code} href={`/accounts/${r.id}`} />
+              </article>
             </li>
           )
         })}

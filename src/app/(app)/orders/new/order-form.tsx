@@ -6,7 +6,7 @@ import { startTransition, useActionState, useMemo, useState } from 'react'
 import { currentVersion, orderEstimate, ruleLabel, stockLevel, type Rule } from '@/lib/inventory'
 import { createOrder } from './actions'
 import { Icon } from '@/components/icons'
-import { Stagger } from '@/components/motion'
+import { GlowBorder, Stagger } from '@/components/motion'
 import { baperanIdentity, baperanStatus } from '@/lib/baperan'
 
 type Brand = { id: string; name: string }
@@ -78,6 +78,7 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
   const [sent, setSent] = useState<{ account: string; voucher: string } | null>(null)
   const [ack, setAck] = useState<typeof state>(null) // hasil yang sudah ditutup lewat "Order berikutnya"
   const [accQuery, setAccQuery] = useState('')
+  const [calcOpen, setCalcOpen] = useState(false) // rincian perhitungan di layar sempit (desktop selalu terbuka)
 
   const typeOf = (id: string) => types.find((t) => t.id === id)
   const availByAccount = useMemo(() => {
@@ -207,23 +208,25 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
                 data-stagger
                 aria-pressed={accountId === a.id}
                 onClick={() => { setAccountId(a.id); setVoucherId(null) }}
-                className={`btn-press flex flex-col items-start rounded-xl border px-3 py-2.5 text-left ${accountId === a.id ? 'border-orange-500 bg-orange-100 ring-2 ring-orange-500/20' : 'border-[#dcd2bf] bg-white hover:border-navy-700'}`}
+                className={`btn-press flex h-full min-w-0 flex-col items-start justify-center gap-0.5 rounded-xl border px-3 py-2.5 text-left ${accountId === a.id ? 'border-orange-500 bg-orange-100 ring-2 ring-orange-500/20' : 'border-[#dcd2bf] bg-white hover:border-navy-700'}`}
               >
                 <span className="flex w-full items-center justify-between gap-2">
-                  <span className="min-w-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]">{a.inventory === 'baperan' ? baperanIdentity(a).label : a.account_code}</span>
+                  <span className="min-w-0 truncate font-mono text-sm font-semibold">{a.inventory === 'baperan' ? baperanIdentity(a).label : a.account_code}</span>
                   {level && <StockDot level={level} />}
                 </span>
                 {level && <span className="sr-only">{STOCK[level].label}.</span>}
-                <span className="text-xs text-ink-500">
-                  {a.inventory === 'baperan' ? (a.account_number ? `Baperan · ${a.account_code}` : 'Baperan · ID Akun') : `${availByAccount.get(a.id)?.length} voucher · ${a.source === 'vm' ? 'VM' : 'Panel'}`}
-                  {a.active_until && ` · s/d ${a.active_until.slice(8, 10)}/${a.active_until.slice(5, 7)}`}
+                {/* Satu baris tetap: badge stok ada di samping keterangan, jadi semua kartu akun sama tinggi. */}
+                <span className="flex w-full items-center justify-between gap-1.5">
+                  <span className="min-w-0 truncate text-xs text-ink-500">
+                    {a.inventory === 'baperan' ? (a.account_number ? `Baperan · ${a.account_code}` : 'Baperan · ID Akun') : `${availByAccount.get(a.id)?.length} voucher · ${a.source === 'vm' ? 'VM' : 'Panel'}`}
+                    {a.active_until && ` · s/d ${a.active_until.slice(8, 10)}/${a.active_until.slice(5, 7)}`}
+                  </span>
+                  {a.inventory === 'baperan' && baperanStatus(a.active_until) === 'segera' ? (
+                    <span className="shrink-0 rounded-full bg-warning-100 px-1.5 py-px text-[10px] font-bold text-warning-700" title="Segera kedaluwarsa">SEGERA</span>
+                  ) : level === 'menipis' ? (
+                    <span aria-hidden className="shrink-0 rounded-full bg-warning-100 px-1.5 py-px text-[10px] font-bold text-warning-700">MENIPIS</span>
+                  ) : null}
                 </span>
-                {a.inventory === 'baperan' && baperanStatus(a.active_until) === 'segera' && (
-                  <span className="mt-1 rounded-full bg-warning-100 px-2 py-0.5 text-[11px] font-bold text-warning-700">Segera kedaluwarsa</span>
-                )}
-                {level === 'menipis' && (
-                  <span aria-hidden className="mt-1 self-end rounded-full bg-warning-100 px-2 py-0.5 text-[11px] font-bold text-warning-700 ring-1 ring-inset ring-warning-700/15">MENIPIS</span>
-                )}
               </button>
               )
             })}
@@ -354,8 +357,18 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
         </Step>
       </fieldset>
 
-      <aside className="flex flex-col gap-2 rounded-2xl bg-navy-900 p-5 text-sm text-white lg:sticky lg:top-6">
-        <h2 className="font-display text-base font-semibold">Perhitungan otomatis</h2>
+      <GlowBorder as="aside" tone="orange" dark className="flex flex-col gap-2 rounded-2xl bg-navy-900 p-5 text-sm text-white lg:sticky lg:top-6">
+        {/* HP/iPad tegak: panel di bawah form; rincian bisa dilipat, laba bersih selalu terlihat. */}
+        <button type="button" onClick={() => setCalcOpen((o) => !o)} aria-expanded={calcOpen} aria-controls="calc-detail"
+          className="flex items-center justify-between gap-2 text-left lg:pointer-events-none">
+          <h2 className="font-display text-base font-semibold">Perhitungan otomatis</h2>
+          <span className="flex items-center gap-2 lg:hidden">
+            <span className={`font-display font-bold ${net !== null && net < 0 ? 'text-[#ffb4a8]' : 'text-orange-500'}`}>{rp(net)}</span>
+            <span aria-hidden className={`text-xs text-[#c5cbd9] transition-transform ${calcOpen ? 'rotate-180' : ''}`}>▾</span>
+            <span className="sr-only">{calcOpen ? 'Sembunyikan rincian' : 'Tampilkan rincian'}</span>
+          </span>
+        </button>
+        <div id="calc-detail" className={`${calcOpen ? 'flex' : 'hidden'} flex-col gap-2 lg:flex`}>
         <span className="text-xs text-[#c5cbd9]">{voucher ? `${voucher.code} · ${ruleLabel(rule)}` : 'Belum memilih voucher'}</span>
         {reasons.length > 0 && (
           <span className="rounded-lg bg-warning-100 px-2.5 py-1.5 text-xs font-semibold text-warning-700">Order ditandai: perlu tinjau owner ({reasons.join('; ')})</span>
@@ -380,7 +393,8 @@ export function OrderForm({ brands, accounts, vouchers, types, versions }: { bra
           <span className={`font-display text-xl font-bold ${net !== null && net < 0 ? 'text-[#ffb4a8]' : 'text-orange-500'}`}>{rp(net)}</span>
         </div>
         <span className="text-xs text-[#8790a6]">Pratinjau. Server menghitung ulang dan menyimpan snapshot harga kredit, versi aturan voucher, dan modal saat order disimpan.</span>
-      </aside>
+        </div>
+      </GlowBorder>
     </form>
   )
 }

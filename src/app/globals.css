@@ -75,6 +75,7 @@ main summary {
 }
 @keyframes pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes row-leave { to { opacity: 0; transform: translateX(16px); } }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
@@ -133,10 +134,30 @@ main summary {
   .confirm-dialog.closing { animation: pop-out 140ms ease-in both; }
   .confirm-dialog.closing::backdrop { animation: fade-out 140ms ease-in both; }
   /* Daftar Akun: baris terpilih disorot halus; baris yang diarsipkan/dipulihkan meluncur keluar. */
-  .account-list tr, .account-list li > a { transition: background-color 160ms ease, border-color 160ms ease; }
+  .account-list tr, .account-list li > article { transition: background-color 160ms ease, border-color 160ms ease; }
   .account-list tr:has(input[data-row-check]:checked) { background: var(--color-orange-100); }
-  .account-list li:has(input[data-row-check]:checked) > a { border-color: var(--color-orange-500); background: var(--color-orange-100); }
+  .account-list li:has(input[data-row-check]:checked) > article { border-color: var(--color-orange-500); background: var(--color-orange-100); }
   .account-list tr:has(input[data-row-check='leaving']), .account-list li:has(input[data-row-check='leaving']) { animation: row-leave 220ms ease-in both; }
+  /* Pinggiran bercahaya (GlowBorder): hanya untuk sedikit elemen penting. Sudut cahaya (--glow-angle) diputar GSAP;
+     tanpa JS atau saat gerak dikurangi, pinggiran tetap tampil diam. */
+  .glow-border { position: relative; isolation: isolate; --glow-angle: 0deg; --glow-a: #4fb286; --glow-b: #9ad9bb;
+    box-shadow: 0 10px 28px -16px color-mix(in srgb, var(--glow-a) 70%, transparent); }
+  .glow-border[data-glow='orange'] { --glow-a: #f08a24; --glow-b: #ffd3a3; }
+  .glow-border[data-glow='sky'] { --glow-a: #4b8fd6; --glow-b: #b9d8f5; }
+  .glow-border::before {
+    content: ''; position: absolute; inset: 0; z-index: 2; border-radius: inherit; padding: 2px; pointer-events: none;
+    background: conic-gradient(from var(--glow-angle), color-mix(in srgb, var(--glow-a) 22%, transparent) 0deg 200deg,
+      var(--glow-a) 270deg, var(--glow-b) 320deg, color-mix(in srgb, var(--glow-a) 22%, transparent) 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+  .glow-shimmer-clip { position: absolute; inset: 0; z-index: 1; overflow: hidden; border-radius: inherit; pointer-events: none; }
+  .glow-shimmer { position: absolute; inset-block: 0; left: 0; width: 45%; transform: translateX(-120%) skewX(-18deg);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent); }
+  .glow-border.on-dark .glow-shimmer { background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.14), transparent); }
+  /* Ikon centang hasil simpan: lingkaran & centang tergambar (stroke) saat muncul. */
+  .check-draw circle { stroke-dasharray: 64; stroke-dashoffset: 64; animation: draw 420ms var(--ease-out-soft) forwards; }
+  .check-draw path { stroke-dasharray: 20; stroke-dashoffset: 20; animation: draw 260ms 280ms var(--ease-out-soft) forwards; }
   /* Gulir internal sidebar: tipis dan menyatu dengan warna navy. */
   .sidebar-scroll { scrollbar-width: thin; scrollbar-color: var(--color-navy-700) transparent; }
 }

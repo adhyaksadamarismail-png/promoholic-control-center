@@ -4,7 +4,7 @@ import { getViewer } from '@/lib/auth'
 import { ActionForm, SubmitButton } from '@/components/action-form'
 import { Card, Note, PageHeader, Pill, Stat, inputCls, labelCls } from '@/components/ui'
 import { Icon } from '@/components/icons'
-import { Progress } from '@/components/motion'
+import { GlowBorder, Progress } from '@/components/motion'
 import { addDays, dateLabel, isoToJktLocal, jktDate, jktDateTime, jktTime, minutesLabel, rupiah, weekStart } from '@/lib/format'
 import {
   ACTION_LABEL,
@@ -169,7 +169,7 @@ export default async function AttendancePage() {
         const steps: AttendanceKind[] = ['clock_in', 'break_start', 'break_end', 'clock_out']
         return (
           <div key={s.id} className="flex flex-col gap-4">
-            <section data-reveal className="flex flex-col gap-4 rounded-2xl bg-navy-900 p-5 text-white shadow-[var(--shadow-lift)]">
+            <GlowBorder as="section" dark data-reveal className="flex flex-col gap-4 rounded-2xl bg-navy-900 p-5 text-white shadow-[var(--shadow-lift)]">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-xs text-[#c5cbd9]">{s.code}</span>
@@ -250,7 +250,7 @@ export default async function AttendancePage() {
               <span className="text-xs text-[#c5cbd9]">
                 Waktu diambil dari server. Tombol muncul sesuai urutan; absen masuk/pulang tidak bisa dua kali.
               </span>
-            </section>
+            </GlowBorder>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Card title={s.kind === 'regular' ? 'Estimasi uang saku' : 'Estimasi bonus shift tambahan'}>

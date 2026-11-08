@@ -129,3 +129,40 @@ export function GrowBars({ children, className, ...rest }: React.HTMLAttributes<
     </div>
   )
 }
+
+/**
+ * Pinggiran bercahaya yang berputar pelan mengelilingi elemen, plus kilau (shimmer) yang sesekali melintas.
+ * Pakai hanya untuk beberapa elemen penting. Berhenti saat elemen tidak terlihat di layar (hemat baterai iPad/HP)
+ * dan diam sepenuhnya bila pengguna meminta gerak minimal.
+ */
+export function GlowBorder({
+  children,
+  className = '',
+  tone = 'green',
+  dark = false,
+  as: Tag = 'div',
+  ...rest
+}: { children: React.ReactNode; className?: string; tone?: 'green' | 'orange' | 'sky'; dark?: boolean; as?: 'div' | 'section' | 'aside' } & Omit<React.HTMLAttributes<HTMLElement>, 'className' | 'children'>) {
+  const root = useRef<HTMLElement>(null)
+  const shine = useRef<HTMLSpanElement>(null)
+  useGSAP(
+    () => {
+      const el = root.current
+      if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      const tl = gsap.timeline({ paused: true })
+      tl.fromTo(el, { '--glow-angle': '0deg' }, { '--glow-angle': '360deg', duration: 6, ease: 'none', repeat: -1 }, 0)
+      if (shine.current)
+        tl.fromTo(shine.current, { xPercent: -120 }, { xPercent: 330, duration: 1.3, ease: 'power2.inOut', repeat: -1, repeatDelay: 6.5, delay: 1.2 }, 0)
+      const io = new IntersectionObserver(([e]) => (e.isIntersecting ? tl.play() : tl.pause()))
+      io.observe(el)
+      return () => io.disconnect()
+    },
+    { scope: root },
+  )
+  return (
+    <Tag ref={root as React.Ref<never>} data-glow={tone === 'green' ? undefined : tone} className={`glow-border ${dark ? 'on-dark' : ''} ${className}`} {...rest}>
+      <span aria-hidden className="glow-shimmer-clip"><span ref={shine} className="glow-shimmer" /></span>
+      {children}
+    </Tag>
+  )
+}
